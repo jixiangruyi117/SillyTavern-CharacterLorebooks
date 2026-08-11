@@ -1,4 +1,4 @@
-import { buildLorebookIndex, filterLorebookRecords } from './modules/LorebookIndex.js?v=0.1.2';
+import { buildLorebookIndex, filterLorebookRecords } from './modules/LorebookIndex.js?v=0.1.3';
 
 const EXTENSION_FOLDER = 'third-party/SillyTavern-CharacterLorebooks';
 const SETTINGS_KEY = 'srlCharacterLorebooks';
