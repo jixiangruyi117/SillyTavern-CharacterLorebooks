@@ -1,4 +1,7 @@
-# 角色世界书
+> [!IMPORTANT]
+> 本 README 由 AI 辅助整理，并已尽量依据当前源码、测试和本地 SillyTavern 验证记录核对。若发现表述不准确、内容遗漏或容易产生误解，请通过 GitHub Issues 告知维护者，以便按照实际实现修正。
+
+# 角色世界书（SillyTavern Character Lorebooks）
 
 一个 SillyTavern 第三方页面扩展，用于按角色归属查看已有世界书。
 
@@ -36,4 +39,8 @@ npm test
 npm run check
 ```
 
-许可证：AGPL-3.0-only。
+## 许可证
+
+本项目采用 [PolyForm Noncommercial License 1.0.0](LICENSE)，对应 SPDX 标识为 `PolyForm-Noncommercial-1.0.0`。该协议允许非商业用途下的使用、复制、修改、fork、二改和分发；商业使用、收费分发、商业整合以及带有预期商业应用的使用不在本许可授权范围内。
+
+该协议属于源码可用的非商业软件许可，不是 OSI 批准的开源许可证。它不提供适用性、兼容性或数据安全保证；使用前请自行确认版本兼容性，并对自己的酒馆数据负责。

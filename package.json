@@ -2,7 +2,7 @@
   "name": "sillytavern-character-lorebooks",
   "version": "0.2.0",
   "private": true,
-  "license": "AGPL-3.0-only",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
