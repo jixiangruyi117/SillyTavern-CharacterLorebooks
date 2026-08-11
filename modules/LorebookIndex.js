@@ -24,76 +24,125 @@ function normalizeCharacterIndex(value) {
     return Number.isSafeInteger(index) ? index : null;
 }
 
-/**
- * Builds a view-only index from SillyTavern's existing character lore bindings.
- * It intentionally never mutates character data, world-info settings, or world files.
- */
-export function buildLorebookIndex({
+function createAdditionalBooksByCharacter(charLore) {
+    const result = new Map();
+    for (const item of Array.isArray(charLore) ? charLore : []) {
+        const key = String(item?.name ?? '').trim();
+        if (!key) continue;
+        const books = normalizeNames(item?.extraBooks);
+        if (!books.length) continue;
+        result.set(key, [...(result.get(key) ?? []), ...books]);
+    }
+    return result;
+}
+
+function createBuildState({
     worldNames = [],
     characters = [],
     charLore = [],
     activeGlobalNames = [],
     chatLoreName = '',
     personaLoreName = '',
-    currentCharacterId = null,
 } = {}) {
     const names = [...new Set(normalizeNames(worldNames))];
-    const knownNames = new Set(names);
-    const byName = new Map(names.map(name => [name, {
-        name,
-        owners: [],
-        globalActive: normalizeNames(activeGlobalNames).includes(name),
-        chatActive: String(chatLoreName ?? '') === name,
-        personaActive: String(personaLoreName ?? '') === name,
-    }]));
-    const missingBindings = [];
-    const characterList = Array.isArray(characters) ? characters : [];
-    const charLoreList = Array.isArray(charLore) ? charLore : [];
-
-    const addBinding = (name, character, type) => {
-        const bookName = String(name ?? '').trim();
-        if (!bookName) return;
-        const owner = makeOwner(character, type);
-        const record = byName.get(bookName);
-        if (!record) {
-            missingBindings.push({ name: bookName, owner, type });
-            return;
-        }
-        if (!record.owners.some(item => item.key === owner.key && item.type === owner.type)) {
-            record.owners.push(owner);
-        }
+    const activeGlobalNameSet = new Set(normalizeNames(activeGlobalNames));
+    return {
+        byName: new Map(names.map(name => [name, {
+            name,
+            owners: [],
+            globalActive: activeGlobalNameSet.has(name),
+            chatActive: String(chatLoreName ?? '') === name,
+            personaActive: String(personaLoreName ?? '') === name,
+        }])),
+        characters: Array.isArray(characters) ? characters : [],
+        extraBooksByCharacter: createAdditionalBooksByCharacter(charLore),
+        missingBindings: [],
+        knownNames: new Set(names),
     };
+}
 
-    for (const character of characterList) {
-        const primary = character?.data?.extensions?.world;
-        addBinding(primary, character, 'primary');
-        const avatarKey = normalizeAvatarKey(character?.avatar);
-        const additional = charLoreList.find(item => String(item?.name ?? '') === avatarKey)?.extraBooks;
-        for (const bookName of normalizeNames(additional)) addBinding(bookName, character, 'additional');
+function addBinding(state, name, character, type) {
+    const bookName = String(name ?? '').trim();
+    if (!bookName) return;
+    const owner = makeOwner(character, type);
+    const record = state.byName.get(bookName);
+    if (!record) {
+        state.missingBindings.push({ name: bookName, owner, type });
+        return;
     }
+    if (!record.owners.some(item => item.key === owner.key && item.type === owner.type)) {
+        record.owners.push(owner);
+    }
+}
 
-    const currentCharacterIndex = normalizeCharacterIndex(currentCharacterId);
-    const currentCharacter = currentCharacterIndex !== null && currentCharacterIndex >= 0
-        ? characterList[currentCharacterIndex] ?? null
-        : null;
-    const currentKey = normalizeAvatarKey(currentCharacter?.avatar);
-    const records = [...byName.values()]
+function addCharacterBindings(state, character) {
+    addBinding(state, character?.data?.extensions?.world, character, 'primary');
+    const avatarKey = normalizeAvatarKey(character?.avatar);
+    for (const bookName of state.extraBooksByCharacter.get(avatarKey) ?? []) {
+        addBinding(state, bookName, character, 'additional');
+    }
+}
+
+function finalizeBuild(state) {
+    const records = [...state.byName.values()]
         .map(record => ({
             ...record,
             owners: [...record.owners].sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN')),
-            current: Boolean(currentKey && record.owners.some(owner => owner.key === currentKey)),
+            current: false,
         }))
         .sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'));
-
     return {
         records,
-        missingBindings,
-        currentCharacter: currentCharacter ? makeOwner(currentCharacter, 'current') : null,
+        missingBindings: state.missingBindings,
+        characters: state.characters,
         ownedCount: records.filter(record => record.owners.length > 0).length,
         publicCount: records.filter(record => record.owners.length === 0).length,
         sharedCount: records.filter(record => new Set(record.owners.map(owner => owner.key)).size > 1).length,
-        knownNames,
+        knownNames: state.knownNames,
     };
+}
+
+/**
+ * Projects an immutable cached catalog onto the currently selected character.
+ * This never rescans the character list or the extra-book configuration.
+ */
+export function projectLorebookIndex(baseIndex, currentCharacterId = null) {
+    if (!baseIndex) return null;
+    const currentCharacterIndex = normalizeCharacterIndex(currentCharacterId);
+    const currentCharacter = currentCharacterIndex !== null && currentCharacterIndex >= 0
+        ? baseIndex.characters?.[currentCharacterIndex] ?? null
+        : null;
+    const currentKey = normalizeAvatarKey(currentCharacter?.avatar);
+    return {
+        ...baseIndex,
+        records: baseIndex.records.map(record => ({
+            ...record,
+            current: Boolean(currentKey && record.owners.some(owner => owner.key === currentKey)),
+        })),
+        currentCharacter: currentCharacter ? makeOwner(currentCharacter, 'current') : null,
+    };
+}
+
+/**
+ * Synchronously builds a view-only index from SillyTavern's existing bindings.
+ */
+export function buildLorebookIndex(options = {}) {
+    const state = createBuildState(options);
+    for (const character of state.characters) addCharacterBindings(state, character);
+    return projectLorebookIndex(finalizeBuild(state), options.currentCharacterId);
+}
+
+/**
+ * Builds the same index in small batches so a large import does not monopolize the UI thread.
+ */
+export async function buildLorebookIndexAsync(options = {}, { chunkSize = 250, yieldToMain = () => new Promise(resolve => setTimeout(resolve, 0)) } = {}) {
+    const state = createBuildState(options);
+    const size = Math.max(1, Number(chunkSize) || 250);
+    for (let start = 0; start < state.characters.length; start += size) {
+        for (const character of state.characters.slice(start, start + size)) addCharacterBindings(state, character);
+        if (start + size < state.characters.length) await yieldToMain();
+    }
+    return projectLorebookIndex(finalizeBuild(state), options.currentCharacterId);
 }
 
 export function filterLorebookRecords(index, scope = 'current', query = '') {

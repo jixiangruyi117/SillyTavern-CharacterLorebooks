@@ -1,10 +1,10 @@
 {
   "display_name": "角色世界书",
   "loading_order": 9998,
-  "js": "index.js?v=0.1.4",
-  "css": "style.css?v=0.1.4",
+  "js": "index.js?v=0.2.0",
+  "css": "style.css?v=0.2.0",
   "author": "SRL",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "按角色归属整理酒馆已有世界书；不改变世界书文件、全局启用状态或提示词装配。",
   "auto_update": true,
   "hooks": {

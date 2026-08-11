@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildLorebookIndex, createCharacterScopedGlobalSelectionPlan, filterLorebookRecords, normalizeAvatarKey } from '../modules/LorebookIndex.js';
+import {
+    buildLorebookIndex,
+    buildLorebookIndexAsync,
+    createCharacterScopedGlobalSelectionPlan,
+    filterLorebookRecords,
+    normalizeAvatarKey,
+    projectLorebookIndex,
+} from '../modules/LorebookIndex.js';
 
 test('uses SillyTavern avatar stem for additional lorebook ownership', () => {
     assert.equal(normalizeAvatarKey('Alice.png'), 'Alice');
@@ -72,4 +79,27 @@ test('only deactivates globally selected lorebooks owned by other characters', (
         keep: ['Alice Book', 'Public Book'],
         deactivate: ['Bob Book'],
     });
+});
+
+test('builds a reusable catalog in chunks and projects the current role afterwards', async () => {
+    const options = {
+        worldNames: ['Alice Book', 'Bob Book', 'Public Book'],
+        characters: [
+            { name: 'Alice', avatar: 'Alice.png', data: { extensions: { world: 'Alice Book' } } },
+            { name: 'Bob', avatar: 'Bob.png', data: { extensions: { world: 'Bob Book' } } },
+            { name: 'Cara', avatar: 'Cara.png', data: { extensions: {} } },
+        ],
+        currentCharacterId: 0,
+    };
+    let yields = 0;
+    const catalog = await buildLorebookIndexAsync({ ...options, currentCharacterId: null }, {
+        chunkSize: 1,
+        yieldToMain: async () => { yields += 1; },
+    });
+    const projected = projectLorebookIndex(catalog, '0');
+    const direct = buildLorebookIndex(options);
+
+    assert.equal(yields, 2);
+    assert.deepEqual(projected.records.map(record => [record.name, record.current]), direct.records.map(record => [record.name, record.current]));
+    assert.deepEqual(filterLorebookRecords(projected, 'current').map(record => record.name), ['Alice Book']);
 });

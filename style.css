@@ -7,6 +7,13 @@
     opacity: 0.8;
 }
 
+#srl-character-lorebooks .srl-character-lorebooks__index-status,
+#srl-character-lorebooks .srl-character-lorebooks__list-meta {
+    margin: 10px 0 7px;
+    font-size: 0.86em;
+    opacity: 0.78;
+}
+
 #srl-character-lorebooks .srl-character-lorebooks__summary,
 #srl-character-lorebooks .srl-character-lorebooks__controls,
 #srl-character-lorebooks .srl-character-lorebooks__tags {
@@ -76,6 +83,19 @@
     margin: 0;
     padding: 0;
     list-style: none;
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__pager {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__pager > .menu_button {
+    min-height: 38px;
+    margin: 0;
 }
 
 #srl-character-lorebooks .srl-character-lorebooks__overview {
@@ -226,6 +246,10 @@
 
     #srl-character-lorebooks .srl-character-lorebooks__confirmation-actions > .menu_button {
         flex: 1 1 120px;
+        min-height: 44px;
+    }
+
+    #srl-character-lorebooks .srl-character-lorebooks__pager > .menu_button {
         min-height: 44px;
     }
 }

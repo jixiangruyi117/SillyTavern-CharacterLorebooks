@@ -1,12 +1,27 @@
-import { buildLorebookIndex, createCharacterScopedGlobalSelectionPlan, filterLorebookRecords } from './modules/LorebookIndex.js?v=0.1.4';
+import {
+    buildLorebookIndexAsync,
+    createCharacterScopedGlobalSelectionPlan,
+    filterLorebookRecords,
+    projectLorebookIndex,
+} from './modules/LorebookIndex.js?v=0.2.0';
 
 const EXTENSION_FOLDER = 'third-party/SillyTavern-CharacterLorebooks';
 const SETTINGS_KEY = 'srlCharacterLorebooks';
 const ROOT_ID = 'srl-character-lorebooks';
 const DEFAULT_SETTINGS = Object.freeze({ scope: 'current', query: '' });
+const SEARCH_DELAY_MS = 150;
+const INDEX_REBUILD_DELAY_MS = 160;
+const INDEX_CHUNK_SIZE = 250;
+const PAGE_SIZE = 40;
 
 let eventBindings = [];
 let cleanupConfirmation = null;
+let catalog = null;
+let catalogRebuilding = false;
+let rebuildTimer = 0;
+let rebuildVersion = 0;
+let searchTimer = 0;
+let listPage = 1;
 
 function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>'"]/gu, character => ({
@@ -34,16 +49,50 @@ function saveSettings(context, settings) {
 }
 
 function getIndex(context) {
-    const worldInfo = context.powerUserSettings?.world_info ?? {};
-    return buildLorebookIndex({
-        worldNames: context.getWorldInfoNames?.() ?? [],
-        characters: context.characters ?? [],
-        charLore: worldInfo.charLore ?? [],
-        activeGlobalNames: worldInfo.globalSelect ?? [],
-        chatLoreName: context.chatMetadata?.world_info ?? '',
-        personaLoreName: context.powerUserSettings?.persona_description_lorebook ?? '',
-        currentCharacterId: context.characterId,
+    return catalog ? projectLorebookIndex(catalog, context.characterId) : null;
+}
+
+function yieldToBrowser() {
+    return new Promise(resolve => {
+        if (typeof globalThis.requestIdleCallback === 'function') {
+            globalThis.requestIdleCallback(() => resolve(), { timeout: 120 });
+            return;
+        }
+        setTimeout(resolve, 0);
     });
+}
+
+function scheduleCatalogRebuild(context, { immediate = false } = {}) {
+    if (!context) return;
+    clearTimeout(rebuildTimer);
+    const version = ++rebuildVersion;
+    catalogRebuilding = true;
+    if (document.getElementById(ROOT_ID)) render();
+    rebuildTimer = setTimeout(async () => {
+        try {
+            const worldInfo = context.powerUserSettings?.world_info ?? {};
+            const nextCatalog = await buildLorebookIndexAsync({
+                worldNames: context.getWorldInfoNames?.() ?? [],
+                characters: context.characters ?? [],
+                charLore: worldInfo.charLore ?? [],
+                activeGlobalNames: worldInfo.globalSelect ?? [],
+                chatLoreName: context.chatMetadata?.world_info ?? '',
+                personaLoreName: context.powerUserSettings?.persona_description_lorebook ?? '',
+                currentCharacterId: null,
+            }, { chunkSize: INDEX_CHUNK_SIZE, yieldToMain: yieldToBrowser });
+            if (version !== rebuildVersion) return;
+            catalog = nextCatalog;
+            catalogRebuilding = false;
+            listPage = 1;
+            render();
+        } catch (error) {
+            if (version !== rebuildVersion) return;
+            catalogRebuilding = false;
+            globalThis.toastr?.error?.('世界书目录建立失败；酒馆原有设置没有被修改。', '角色世界书');
+            console.error('[角色世界书] 目录建立失败', error);
+            render();
+        }
+    }, immediate ? 0 : INDEX_REBUILD_DELAY_MS);
 }
 
 function getCurrentCharacterLabel(context, index) {
@@ -80,13 +129,33 @@ function renderRecord(record) {
 }
 
 function renderRecords(index, settings) {
+    if (!index) {
+        return '<div class="srl-character-lorebooks__records" data-role="records"><p class="srl-character-lorebooks__index-status"><i class="fa-solid fa-spinner fa-spin"></i> 正在分批整理世界书目录…</p></div>';
+    }
     const records = filterLorebookRecords(index, settings.scope, settings.query);
     const unavailableHint = settings.scope === 'current' && !index.currentCharacter
         ? '<p class="srl-character-lorebooks__empty">当前没有可识别的单角色绑定。群聊请切到“全部”查看所有归属世界书。</p>'
-        : records.length
-            ? `<ul class="srl-character-lorebooks__list">${records.map(renderRecord).join('')}</ul>`
-            : '<p class="srl-character-lorebooks__empty">这个范围没有世界书。</p>';
-    return `<div class="srl-character-lorebooks__records" data-role="records">${unavailableHint}</div>`;
+        : records.length ? renderPagedRecords(records) : '<p class="srl-character-lorebooks__empty">这个范围没有世界书。</p>';
+    const rebuildingHint = catalogRebuilding
+        ? '<p class="srl-character-lorebooks__index-status"><i class="fa-solid fa-arrows-rotate fa-spin"></i> 正在后台更新目录，暂时显示上一次结果。</p>'
+        : '';
+    return `<div class="srl-character-lorebooks__records" data-role="records">${rebuildingHint}${unavailableHint}</div>`;
+}
+
+function renderPagedRecords(records) {
+    const totalPages = Math.max(1, Math.ceil(records.length / PAGE_SIZE));
+    listPage = Math.min(Math.max(listPage, 1), totalPages);
+    const start = (listPage - 1) * PAGE_SIZE;
+    const pageRecords = records.slice(start, start + PAGE_SIZE);
+    const pager = totalPages > 1
+        ? `<nav class="srl-character-lorebooks__pager" aria-label="世界书分页">
+            <button type="button" class="menu_button" data-action="page-prev"${listPage === 1 ? ' disabled' : ''}><i class="fa-solid fa-chevron-left"></i> 上一页</button>
+            <span>${listPage} / ${totalPages}</span>
+            <button type="button" class="menu_button" data-action="page-next"${listPage === totalPages ? ' disabled' : ''}>下一页 <i class="fa-solid fa-chevron-right"></i></button>
+        </nav>`
+        : '';
+    return `<p class="srl-character-lorebooks__list-meta">显示 ${start + 1}–${start + pageRecords.length} / ${records.length}</p>
+        <ul class="srl-character-lorebooks__list">${pageRecords.map(renderRecord).join('')}</ul>${pager}`;
 }
 
 function isDrawerOpen(root) {
@@ -131,6 +200,10 @@ function requestCharacterScopedCleanup() {
     const context = getContext();
     if (!context) return;
     const index = getIndex(context);
+    if (!index) {
+        globalThis.toastr?.info?.('世界书目录仍在整理，请稍后再试。', '角色世界书');
+        return;
+    }
     if (!index.currentCharacter) {
         globalThis.toastr?.warning?.('请先打开单角色聊天；群聊没有唯一的当前角色。', '角色世界书');
         return;
@@ -157,6 +230,10 @@ function confirmCharacterScopedCleanup() {
         return;
     }
     const index = getIndex(context);
+    if (!index) {
+        globalThis.toastr?.info?.('世界书目录仍在整理，请稍后再试。', '角色世界书');
+        return;
+    }
     const plan = createCharacterScopedGlobalSelectionPlan(index);
     if (!plan.deactivate.length) {
         cleanupConfirmation = null;
@@ -179,14 +256,22 @@ function render({ focusQuery = false } = {}) {
     const wasOpen = isDrawerOpen(root);
     const settings = getSettings(context);
     const index = getIndex(context);
-    const currentLabel = getCurrentCharacterLabel(context, index);
-    const missing = index.missingBindings.length
-        ? `<div class="srl-character-lorebooks__warning"><i class="fa-solid fa-triangle-exclamation"></i><span>发现 ${index.missingBindings.length} 个失效绑定：${index.missingBindings.map(item => escapeHtml(item.name)).join('、')}。插件没有修改它们。</span></div>`
+    const displayIndex = index ?? {
+        records: [],
+        missingBindings: [],
+        ownedCount: 0,
+        publicCount: 0,
+        sharedCount: 0,
+        currentCharacter: null,
+    };
+    const currentLabel = getCurrentCharacterLabel(context, displayIndex);
+    const missing = displayIndex.missingBindings.length
+        ? `<div class="srl-character-lorebooks__warning"><i class="fa-solid fa-triangle-exclamation"></i><span>发现 ${displayIndex.missingBindings.length} 个失效绑定：${displayIndex.missingBindings.map(item => escapeHtml(item.name)).join('、')}。插件没有修改它们。</span></div>`
         : '';
 
     root.innerHTML = `<div class="inline-drawer srl-character-lorebooks__drawer">
         <div class="inline-drawer-toggle inline-drawer-header">
-            <b><i class="fa-solid fa-book-atlas"></i> 角色世界书 <span class="srl-character-lorebooks__count">${index.records.length}</span></b>
+            <b><i class="fa-solid fa-book-atlas"></i> 角色世界书 <span class="srl-character-lorebooks__count">${displayIndex.records.length}</span></b>
             <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
         </div>
         <div class="inline-drawer-content">
@@ -195,7 +280,7 @@ function render({ focusQuery = false } = {}) {
                 <p>只整理酒馆已有绑定，不移动文件、不改全局启用状态，也不改变提示词装配。</p>
             </section>
             <div class="srl-character-lorebooks__summary" aria-label="世界书统计">
-                <span><b>${index.ownedCount}</b> 角色归属</span><span><b>${index.publicCount}</b> 公共</span><span><b>${index.sharedCount}</b> 共享</span>
+                <span><b>${displayIndex.ownedCount}</b> 角色归属</span><span><b>${displayIndex.publicCount}</b> 公共</span><span><b>${displayIndex.sharedCount}</b> 共享</span>
             </div>
             <div class="srl-character-lorebooks__controls">
                 <label class="srl-character-lorebooks__scope">显示
@@ -263,6 +348,7 @@ function bindDomEvents() {
         const settings = getSettings(context);
         settings.scope = event.target.value;
         saveSettings(context, settings);
+        listPage = 1;
         refreshRecords();
     });
     root.addEventListener('input', event => {
@@ -273,14 +359,18 @@ function bindDomEvents() {
         const settings = getSettings(context);
         settings.query = event.target.value;
         saveSettings(context, settings);
-        refreshRecords();
+        listPage = 1;
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(refreshRecords, SEARCH_DELAY_MS);
     });
     root.addEventListener('click', event => {
         const target = event.target.closest?.('[data-action]');
         if (!target) return;
-        if (target.dataset.action === 'refresh') render();
+        if (target.dataset.action === 'refresh') scheduleCatalogRebuild(getContext(), { immediate: true });
         if (target.dataset.action === 'open-all') openNativeWorldPanel();
         if (target.dataset.action === 'open-native') openNativeWorld(target.dataset.worldName);
+        if (target.dataset.action === 'page-prev') { listPage -= 1; refreshRecords(); }
+        if (target.dataset.action === 'page-next') { listPage += 1; refreshRecords(); }
         if (target.dataset.action === 'request-cleanup') requestCharacterScopedCleanup();
         if (target.dataset.action === 'cancel-cleanup') { cleanupConfirmation = null; render(); }
         if (target.dataset.action === 'confirm-cleanup') confirmCharacterScopedCleanup();
@@ -291,19 +381,30 @@ function bindRuntimeEvents(context) {
     const source = context.eventSource;
     const types = context.eventTypes;
     if (!source?.on || !types) return;
-    const refresh = () => render();
+    const renderSelection = () => {
+        cleanupConfirmation = null;
+        listPage = 1;
+        render();
+    };
+    const rebuildCatalog = () => {
+        cleanupConfirmation = null;
+        scheduleCatalogRebuild(context);
+    };
     for (const type of [
-        types.CHAT_CHANGED,
         types.CHARACTER_EDITED,
         types.CHARACTER_DELETED,
         types.CHARACTER_RENAMED,
-        types.GROUP_UPDATED,
         types.WORLDINFO_UPDATED,
         types.WORLDINFO_SETTINGS_UPDATED,
     ]) {
         if (!type) continue;
-        source.on(type, refresh);
-        eventBindings.push({ source, type, refresh });
+        source.on(type, rebuildCatalog);
+        eventBindings.push({ source, type, refresh: rebuildCatalog });
+    }
+    for (const type of [types.CHAT_CHANGED, types.GROUP_UPDATED]) {
+        if (!type) continue;
+        source.on(type, renderSelection);
+        eventBindings.push({ source, type, refresh: renderSelection });
     }
 }
 
@@ -326,10 +427,15 @@ export async function activate() {
     bindRuntimeEvents(context);
     render();
     bindDomEvents();
+    scheduleCatalogRebuild(context, { immediate: true });
 }
 
 export function disable() {
     unbindRuntimeEvents();
     cleanupConfirmation = null;
+    catalog = null;
+    catalogRebuilding = false;
+    clearTimeout(rebuildTimer);
+    clearTimeout(searchTimer);
     document.getElementById(ROOT_ID)?.remove();
 }
