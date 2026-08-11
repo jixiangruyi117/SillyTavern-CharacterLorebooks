@@ -1,9 +1,11 @@
 import {
     buildLorebookIndexAsync,
+    createLorebookCatalogFingerprint,
     createCharacterScopedGlobalSelectionPlan,
     filterLorebookRecords,
     projectLorebookIndex,
-} from './modules/LorebookIndex.js?v=0.2.1';
+} from './modules/LorebookIndex.js?v=0.2.2';
+import { world_info } from '../../../world-info.js';
 
 const EXTENSION_FOLDER = 'third-party/SillyTavern-CharacterLorebooks';
 const SETTINGS_KEY = 'srlCharacterLorebooks';
@@ -52,6 +54,19 @@ function getIndex(context) {
     return catalog ? projectLorebookIndex(catalog, context.characterId) : null;
 }
 
+function getCatalogBuildOptions(context) {
+    const worldInfo = world_info ?? context.powerUserSettings?.world_info ?? {};
+    return {
+        worldNames: context.getWorldInfoNames?.() ?? [],
+        characters: context.characters ?? [],
+        charLore: worldInfo.charLore ?? [],
+        activeGlobalNames: worldInfo.globalSelect ?? [],
+        chatLoreName: context.chatMetadata?.world_info ?? '',
+        personaLoreName: context.powerUserSettings?.persona_description_lorebook ?? '',
+        currentCharacterId: null,
+    };
+}
+
 function yieldToBrowser() {
     return new Promise(resolve => {
         if (typeof globalThis.requestIdleCallback === 'function') {
@@ -76,16 +91,10 @@ function scheduleCatalogRebuild({ immediate = false } = {}) {
                 if (version === rebuildVersion) catalogRebuilding = false;
                 return;
             }
-            const worldInfo = context.powerUserSettings?.world_info ?? {};
-            const nextCatalog = await buildLorebookIndexAsync({
-                worldNames: context.getWorldInfoNames?.() ?? [],
-                characters: context.characters ?? [],
-                charLore: worldInfo.charLore ?? [],
-                activeGlobalNames: worldInfo.globalSelect ?? [],
-                chatLoreName: context.chatMetadata?.world_info ?? '',
-                personaLoreName: context.powerUserSettings?.persona_description_lorebook ?? '',
-                currentCharacterId: null,
-            }, { chunkSize: INDEX_CHUNK_SIZE, yieldToMain: yieldToBrowser });
+            const nextCatalog = await buildLorebookIndexAsync(getCatalogBuildOptions(context), {
+                chunkSize: INDEX_CHUNK_SIZE,
+                yieldToMain: yieldToBrowser,
+            });
             if (version !== rebuildVersion) return;
             catalog = nextCatalog;
             catalogRebuilding = false;
@@ -398,8 +407,9 @@ function bindRuntimeEvents(context) {
     };
     const rebuildWhenCharacterListIsReady = () => {
         const latestContext = getContext();
-        const currentCount = Array.isArray(latestContext?.characters) ? latestContext.characters.length : 0;
-        if (!catalog || catalog.characters?.length !== currentCount) rebuildCatalog();
+        if (!latestContext) return;
+        const latestFingerprint = createLorebookCatalogFingerprint(getCatalogBuildOptions(latestContext));
+        if (!catalog || catalog.sourceFingerprint !== latestFingerprint) rebuildCatalog();
     };
     for (const type of [
         types.CHARACTER_EDITED,

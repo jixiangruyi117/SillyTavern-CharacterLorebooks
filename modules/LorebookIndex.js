@@ -8,6 +8,39 @@ function normalizeNames(values) {
         : [];
 }
 
+/**
+ * Produces a small, content-free signature for the fields that determine
+ * lorebook ownership and its visible state. Character-card prose is never read.
+ */
+export function createLorebookCatalogFingerprint({
+    worldNames = [],
+    characters = [],
+    charLore = [],
+    activeGlobalNames = [],
+    chatLoreName = '',
+    personaLoreName = '',
+} = {}) {
+    const characterBindings = (Array.isArray(characters) ? characters : [])
+        .map(character => [
+            String(character?.avatar ?? ''),
+            String(character?.name ?? ''),
+            String(character?.data?.extensions?.world ?? ''),
+        ])
+        .sort((a, b) => a[0].localeCompare(b[0], 'en'));
+    const additionalBindings = (Array.isArray(charLore) ? charLore : [])
+        .map(item => [String(item?.name ?? ''), [...normalizeNames(item?.extraBooks)].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))])
+        .filter(([name]) => name)
+        .sort((a, b) => a[0].localeCompare(b[0], 'en'));
+    return JSON.stringify({
+        worldNames: [...normalizeNames(worldNames)].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN')),
+        characterBindings,
+        additionalBindings,
+        activeGlobalNames: [...normalizeNames(activeGlobalNames)].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN')),
+        chatLoreName: String(chatLoreName ?? ''),
+        personaLoreName: String(personaLoreName ?? ''),
+    });
+}
+
 function makeOwner(character, type) {
     return {
         avatar: String(character.avatar ?? ''),
@@ -58,6 +91,14 @@ function createBuildState({
         extraBooksByCharacter: createAdditionalBooksByCharacter(charLore),
         missingBindings: [],
         knownNames: new Set(names),
+        sourceFingerprint: createLorebookCatalogFingerprint({
+            worldNames,
+            characters,
+            charLore,
+            activeGlobalNames,
+            chatLoreName,
+            personaLoreName,
+        }),
     };
 }
 
@@ -99,6 +140,7 @@ function finalizeBuild(state) {
         publicCount: records.filter(record => record.owners.length === 0).length,
         sharedCount: records.filter(record => new Set(record.owners.map(owner => owner.key)).size > 1).length,
         knownNames: state.knownNames,
+        sourceFingerprint: state.sourceFingerprint,
     };
 }
 

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
     buildLorebookIndex,
     buildLorebookIndexAsync,
+    createLorebookCatalogFingerprint,
     createCharacterScopedGlobalSelectionPlan,
     filterLorebookRecords,
     normalizeAvatarKey,
@@ -117,4 +118,28 @@ test('a rebuilt catalog replaces an earlier public classification after the char
     assert.deepEqual(filterLorebookRecords(beforeLink, 'public').map(record => record.name), ['Imported Book']);
     assert.deepEqual(filterLorebookRecords(afterLink, 'public'), []);
     assert.deepEqual(filterLorebookRecords(afterLink, 'all')[0]?.owners.map(owner => owner.name), ['Alice']);
+});
+
+test('detects same-size delayed bindings in a 500-character catalog', async () => {
+    const charactersBeforeLink = Array.from({ length: 500 }, (_, index) => ({
+        name: `Role ${index}`,
+        avatar: `role-${index}.png`,
+        data: { extensions: {} },
+    }));
+    const worldNames = charactersBeforeLink.map((_, index) => `Book ${index}`);
+    const charactersAfterLink = charactersBeforeLink.map((character, index) => ({
+        ...character,
+        data: { extensions: { world: `Book ${index}` } },
+    }));
+    const beforeFingerprint = createLorebookCatalogFingerprint({ worldNames, characters: charactersBeforeLink });
+    const afterFingerprint = createLorebookCatalogFingerprint({ worldNames, characters: charactersAfterLink });
+    const index = await buildLorebookIndexAsync({ worldNames, characters: charactersAfterLink }, {
+        chunkSize: 250,
+        yieldToMain: async () => {},
+    });
+
+    assert.equal(charactersBeforeLink.length, charactersAfterLink.length);
+    assert.notEqual(beforeFingerprint, afterFingerprint);
+    assert.equal(index.publicCount, 0);
+    assert.equal(index.ownedCount, 500);
 });
