@@ -103,3 +103,18 @@ test('builds a reusable catalog in chunks and projects the current role afterwar
     assert.deepEqual(projected.records.map(record => [record.name, record.current]), direct.records.map(record => [record.name, record.current]));
     assert.deepEqual(filterLorebookRecords(projected, 'current').map(record => record.name), ['Alice Book']);
 });
+
+test('a rebuilt catalog replaces an earlier public classification after the character link is available', async () => {
+    const beforeLink = await buildLorebookIndexAsync({
+        worldNames: ['Imported Book'],
+        characters: [{ name: 'Alice', avatar: 'Alice.png', data: { extensions: {} } }],
+    });
+    const afterLink = await buildLorebookIndexAsync({
+        worldNames: ['Imported Book'],
+        characters: [{ name: 'Alice', avatar: 'Alice.png', data: { extensions: { world: 'Imported Book' } } }],
+    });
+
+    assert.deepEqual(filterLorebookRecords(beforeLink, 'public').map(record => record.name), ['Imported Book']);
+    assert.deepEqual(filterLorebookRecords(afterLink, 'public'), []);
+    assert.deepEqual(filterLorebookRecords(afterLink, 'all')[0]?.owners.map(owner => owner.name), ['Alice']);
+});

@@ -3,7 +3,7 @@ import {
     createCharacterScopedGlobalSelectionPlan,
     filterLorebookRecords,
     projectLorebookIndex,
-} from './modules/LorebookIndex.js?v=0.2.0';
+} from './modules/LorebookIndex.js?v=0.2.1';
 
 const EXTENSION_FOLDER = 'third-party/SillyTavern-CharacterLorebooks';
 const SETTINGS_KEY = 'srlCharacterLorebooks';
@@ -62,14 +62,20 @@ function yieldToBrowser() {
     });
 }
 
-function scheduleCatalogRebuild(context, { immediate = false } = {}) {
-    if (!context) return;
+function scheduleCatalogRebuild({ immediate = false } = {}) {
     clearTimeout(rebuildTimer);
     const version = ++rebuildVersion;
     catalogRebuilding = true;
     if (document.getElementById(ROOT_ID)) render();
     rebuildTimer = setTimeout(async () => {
         try {
+            // getContext() returns a point-in-time view. Read it here rather than
+            // reusing the context captured when this extension was activated.
+            const context = getContext();
+            if (!context?.getWorldInfoNames) {
+                if (version === rebuildVersion) catalogRebuilding = false;
+                return;
+            }
             const worldInfo = context.powerUserSettings?.world_info ?? {};
             const nextCatalog = await buildLorebookIndexAsync({
                 worldNames: context.getWorldInfoNames?.() ?? [],
@@ -366,7 +372,7 @@ function bindDomEvents() {
     root.addEventListener('click', event => {
         const target = event.target.closest?.('[data-action]');
         if (!target) return;
-        if (target.dataset.action === 'refresh') scheduleCatalogRebuild(getContext(), { immediate: true });
+        if (target.dataset.action === 'refresh') scheduleCatalogRebuild({ immediate: true });
         if (target.dataset.action === 'open-all') openNativeWorldPanel();
         if (target.dataset.action === 'open-native') openNativeWorld(target.dataset.worldName);
         if (target.dataset.action === 'page-prev') { listPage -= 1; refreshRecords(); }
@@ -388,7 +394,12 @@ function bindRuntimeEvents(context) {
     };
     const rebuildCatalog = () => {
         cleanupConfirmation = null;
-        scheduleCatalogRebuild(context);
+        scheduleCatalogRebuild();
+    };
+    const rebuildWhenCharacterListIsReady = () => {
+        const latestContext = getContext();
+        const currentCount = Array.isArray(latestContext?.characters) ? latestContext.characters.length : 0;
+        if (!catalog || catalog.characters?.length !== currentCount) rebuildCatalog();
     };
     for (const type of [
         types.CHARACTER_EDITED,
@@ -400,6 +411,10 @@ function bindRuntimeEvents(context) {
         if (!type) continue;
         source.on(type, rebuildCatalog);
         eventBindings.push({ source, type, refresh: rebuildCatalog });
+    }
+    if (types.CHARACTER_PAGE_LOADED) {
+        source.on(types.CHARACTER_PAGE_LOADED, rebuildWhenCharacterListIsReady);
+        eventBindings.push({ source, type: types.CHARACTER_PAGE_LOADED, refresh: rebuildWhenCharacterListIsReady });
     }
     for (const type of [types.CHAT_CHANGED, types.GROUP_UPDATED]) {
         if (!type) continue;
@@ -427,7 +442,7 @@ export async function activate() {
     bindRuntimeEvents(context);
     render();
     bindDomEvents();
-    scheduleCatalogRebuild(context, { immediate: true });
+    scheduleCatalogRebuild({ immediate: true });
 }
 
 export function disable() {
@@ -435,6 +450,7 @@ export function disable() {
     cleanupConfirmation = null;
     catalog = null;
     catalogRebuilding = false;
+    rebuildVersion += 1;
     clearTimeout(rebuildTimer);
     clearTimeout(searchTimer);
     document.getElementById(ROOT_ID)?.remove();
