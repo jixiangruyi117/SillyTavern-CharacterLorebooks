@@ -1,4 +1,4 @@
-import { buildLorebookIndex, filterLorebookRecords } from './modules/LorebookIndex.js?v=0.1.1';
+import { buildLorebookIndex, filterLorebookRecords } from './modules/LorebookIndex.js?v=0.1.2';
 
 const EXTENSION_FOLDER = 'third-party/SillyTavern-CharacterLorebooks';
 const SETTINGS_KEY = 'srlCharacterLorebooks';
@@ -45,6 +45,12 @@ function getIndex(context) {
     });
 }
 
+function getCurrentCharacterLabel(context, index) {
+    if (index.currentCharacter) return index.currentCharacter.name;
+    if (context.groupId) return '群聊（没有单一当前角色）';
+    return '尚未选择角色';
+}
+
 function getRecordTags(record) {
     const tags = [];
     if (record.current) tags.push('<span class="srl-character-lorebooks__tag srl-character-lorebooks__tag--current">当前角色</span>');
@@ -75,7 +81,7 @@ function renderRecord(record) {
 function renderRecords(index, settings) {
     const records = filterLorebookRecords(index, settings.scope, settings.query);
     const unavailableHint = settings.scope === 'current' && !index.currentCharacter
-        ? '<p class="srl-character-lorebooks__empty">当前不是单角色聊天。请切到“全部”，或在群聊中使用酒馆原生世界书管理。</p>'
+        ? '<p class="srl-character-lorebooks__empty">当前没有可识别的单角色绑定。群聊请切到“全部”查看所有归属世界书。</p>'
         : records.length
             ? `<ul class="srl-character-lorebooks__list">${records.map(renderRecord).join('')}</ul>`
             : '<p class="srl-character-lorebooks__empty">这个范围没有世界书。</p>';
@@ -114,7 +120,7 @@ function render({ focusQuery = false } = {}) {
     const wasOpen = isDrawerOpen(root);
     const settings = getSettings(context);
     const index = getIndex(context);
-    const currentLabel = index.currentCharacter?.name ?? '群聊或未选择角色';
+    const currentLabel = getCurrentCharacterLabel(context, index);
     const missing = index.missingBindings.length
         ? `<div class="srl-character-lorebooks__warning"><i class="fa-solid fa-triangle-exclamation"></i><span>发现 ${index.missingBindings.length} 个失效绑定：${index.missingBindings.map(item => escapeHtml(item.name)).join('、')}。插件没有修改它们。</span></div>`
         : '';

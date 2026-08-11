@@ -17,6 +17,13 @@ function makeOwner(character, type) {
     };
 }
 
+function normalizeCharacterIndex(value) {
+    if (typeof value === 'number' && Number.isInteger(value)) return value;
+    if (typeof value !== 'string' || !/^\d+$/u.test(value.trim())) return null;
+    const index = Number(value);
+    return Number.isSafeInteger(index) ? index : null;
+}
+
 /**
  * Builds a view-only index from SillyTavern's existing character lore bindings.
  * It intentionally never mutates character data, world-info settings, or world files.
@@ -65,8 +72,9 @@ export function buildLorebookIndex({
         for (const bookName of normalizeNames(additional)) addBinding(bookName, character, 'additional');
     }
 
-    const currentCharacter = Number.isInteger(currentCharacterId) && currentCharacterId >= 0
-        ? characterList[currentCharacterId] ?? null
+    const currentCharacterIndex = normalizeCharacterIndex(currentCharacterId);
+    const currentCharacter = currentCharacterIndex !== null && currentCharacterIndex >= 0
+        ? characterList[currentCharacterIndex] ?? null
         : null;
     const currentKey = normalizeAvatarKey(currentCharacter?.avatar);
     const records = [...byName.values()]

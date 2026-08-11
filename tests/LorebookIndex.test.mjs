@@ -45,3 +45,14 @@ test('tracks active global, chat, and persona labels without changing their stat
     assert.equal(index.records.find(record => record.name === 'Chat').chatActive, true);
     assert.equal(index.records.find(record => record.name === 'Persona').personaActive, true);
 });
+
+test('accepts SillyTavern character IDs supplied as numeric strings', () => {
+    const index = buildLorebookIndex({
+        worldNames: ['Alice Book'],
+        characters: [{ name: 'Alice', avatar: 'Alice.png', data: { extensions: { world: 'Alice Book' } } }],
+        currentCharacterId: '0',
+    });
+
+    assert.equal(index.currentCharacter?.name, 'Alice');
+    assert.equal(filterLorebookRecords(index, 'current')[0]?.name, 'Alice Book');
+});
