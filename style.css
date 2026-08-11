@@ -65,6 +65,11 @@
     white-space: nowrap;
 }
 
+#srl-character-lorebooks .srl-character-lorebooks__cleanup {
+    grid-column: 1 / -1;
+    justify-self: start;
+}
+
 #srl-character-lorebooks .srl-character-lorebooks__list {
     display: grid;
     gap: 6px;
@@ -158,6 +163,25 @@
     background: var(--SmartThemeBlurTintColor, rgba(0, 0, 0, 0.08));
 }
 
+#srl-character-lorebooks .srl-character-lorebooks__cleanup-confirmation {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 8px;
+    margin: 10px 0;
+    padding: 10px;
+    border: 1px solid var(--SmartThemeWarningColor, #d99a28);
+    border-radius: 6px;
+    background: var(--SmartThemeBlurTintColor, rgba(0, 0, 0, 0.08));
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__confirmation-actions {
+    display: flex;
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
 @media (max-width: 760px) {
     #srl-character-lorebooks .srl-character-lorebooks__controls {
         grid-template-columns: 1fr 1fr;
@@ -167,6 +191,11 @@
     #srl-character-lorebooks .srl-character-lorebooks__scope,
     #srl-character-lorebooks .srl-character-lorebooks__search {
         grid-column: 1 / -1;
+    }
+
+    #srl-character-lorebooks .srl-character-lorebooks__cleanup {
+        grid-column: 1 / -1;
+        justify-self: stretch;
     }
 
     #srl-character-lorebooks .srl-character-lorebooks__scope select {
@@ -193,5 +222,10 @@
 
     #srl-character-lorebooks .srl-character-lorebooks__summary b {
         font-size: 1.1em;
+    }
+
+    #srl-character-lorebooks .srl-character-lorebooks__confirmation-actions > .menu_button {
+        flex: 1 1 120px;
+        min-height: 44px;
     }
 }

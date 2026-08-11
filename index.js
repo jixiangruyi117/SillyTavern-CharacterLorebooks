@@ -1,4 +1,4 @@
-import { buildLorebookIndex, filterLorebookRecords } from './modules/LorebookIndex.js?v=0.1.3';
+import { buildLorebookIndex, createCharacterScopedGlobalSelectionPlan, filterLorebookRecords } from './modules/LorebookIndex.js?v=0.1.4';
 
 const EXTENSION_FOLDER = 'third-party/SillyTavern-CharacterLorebooks';
 const SETTINGS_KEY = 'srlCharacterLorebooks';
@@ -6,6 +6,7 @@ const ROOT_ID = 'srl-character-lorebooks';
 const DEFAULT_SETTINGS = Object.freeze({ scope: 'current', query: '' });
 
 let eventBindings = [];
+let cleanupConfirmation = null;
 
 function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>'"]/gu, character => ({
@@ -113,6 +114,64 @@ function refreshRecords() {
     target.outerHTML = renderRecords(getIndex(context), getSettings(context));
 }
 
+function renderCleanupConfirmation() {
+    if (!cleanupConfirmation) return '';
+    const names = cleanupConfirmation.deactivate.map(escapeHtml).join('、');
+    return `<div class="srl-character-lorebooks__cleanup-confirmation">
+        <i class="fa-solid fa-circle-info"></i>
+        <span>将关闭其他角色的全局启用：${names}。当前角色书仍由酒馆原生自动启用，公共书保持不变。</span>
+        <div class="srl-character-lorebooks__confirmation-actions">
+            <button type="button" class="menu_button" data-action="cancel-cleanup">取消</button>
+            <button type="button" class="menu_button redWarningBG" data-action="confirm-cleanup">确认关闭 ${cleanupConfirmation.deactivate.length} 本</button>
+        </div>
+    </div>`;
+}
+
+function requestCharacterScopedCleanup() {
+    const context = getContext();
+    if (!context) return;
+    const index = getIndex(context);
+    if (!index.currentCharacter) {
+        globalThis.toastr?.warning?.('请先打开单角色聊天；群聊没有唯一的当前角色。', '角色世界书');
+        return;
+    }
+    const plan = createCharacterScopedGlobalSelectionPlan(index);
+    if (!plan.deactivate.length) {
+        globalThis.toastr?.info?.('没有其他角色的世界书处于全局启用状态。', '角色世界书');
+        return;
+    }
+    cleanupConfirmation = plan;
+    render();
+}
+
+function getWorldNameForOption(option, names) {
+    const index = Number(option.value);
+    return Number.isInteger(index) && names[index] ? names[index] : option.textContent?.trim() ?? '';
+}
+
+function confirmCharacterScopedCleanup() {
+    const context = getContext();
+    const select = document.getElementById('world_info');
+    if (!context || !(select instanceof HTMLSelectElement)) {
+        globalThis.toastr?.warning?.('未识别到酒馆原生全局世界书选择器，未修改任何设置。', '角色世界书');
+        return;
+    }
+    const index = getIndex(context);
+    const plan = createCharacterScopedGlobalSelectionPlan(index);
+    if (!plan.deactivate.length) {
+        cleanupConfirmation = null;
+        globalThis.toastr?.info?.('全局启用列表已经没有其他角色世界书。', '角色世界书');
+        render();
+        return;
+    }
+    const keep = new Set(plan.keep);
+    for (const option of select.options) option.selected = keep.has(getWorldNameForOption(option, context.getWorldInfoNames?.() ?? []));
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    cleanupConfirmation = null;
+    globalThis.toastr?.success?.(`已关闭 ${plan.deactivate.length} 本其他角色世界书的全局启用。`, '角色世界书');
+    setTimeout(render, 0);
+}
+
 function render({ focusQuery = false } = {}) {
     const context = getContext();
     const root = document.getElementById(ROOT_ID);
@@ -149,8 +208,10 @@ function render({ focusQuery = false } = {}) {
                 <label class="srl-character-lorebooks__search"><span class="fa-solid fa-magnifying-glass"></span><input data-field="query" class="text_pole" type="search" value="${escapeHtml(settings.query)}" placeholder="搜索世界书或角色" aria-label="搜索世界书或角色"></label>
                 <button type="button" class="menu_button" data-action="refresh"><i class="fa-solid fa-rotate"></i> 刷新</button>
                 <button type="button" class="menu_button" data-action="open-all"><i class="fa-solid fa-arrow-up-right-from-square"></i> 原生世界书</button>
+                <button type="button" class="menu_button srl-character-lorebooks__cleanup" data-action="request-cleanup"><i class="fa-solid fa-filter-circle-xmark"></i> 关闭其他角色书</button>
             </div>
             ${missing}
+            ${renderCleanupConfirmation()}
             ${renderRecords(index, settings)}
         </div>
     </div>`;
@@ -220,6 +281,9 @@ function bindDomEvents() {
         if (target.dataset.action === 'refresh') render();
         if (target.dataset.action === 'open-all') openNativeWorldPanel();
         if (target.dataset.action === 'open-native') openNativeWorld(target.dataset.worldName);
+        if (target.dataset.action === 'request-cleanup') requestCharacterScopedCleanup();
+        if (target.dataset.action === 'cancel-cleanup') { cleanupConfirmation = null; render(); }
+        if (target.dataset.action === 'confirm-cleanup') confirmCharacterScopedCleanup();
     });
 }
 
@@ -266,5 +330,6 @@ export async function activate() {
 
 export function disable() {
     unbindRuntimeEvents();
+    cleanupConfirmation = null;
     document.getElementById(ROOT_ID)?.remove();
 }

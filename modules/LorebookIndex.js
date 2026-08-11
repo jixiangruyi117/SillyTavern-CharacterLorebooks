@@ -108,3 +108,20 @@ export function filterLorebookRecords(index, scope = 'current', query = '') {
             .some(value => value.toLocaleLowerCase('zh-Hans-CN').includes(normalizedQuery));
     });
 }
+
+/**
+ * Keeps active public lorebooks and the current character's active books,
+ * while identifying globally active books owned only by other characters.
+ */
+export function createCharacterScopedGlobalSelectionPlan(index) {
+    const records = index?.records ?? [];
+    const active = records.filter(record => record.globalActive);
+    const deactivate = active
+        .filter(record => record.owners.length > 0 && !record.current)
+        .map(record => record.name);
+    const deactivateSet = new Set(deactivate);
+    return {
+        deactivate,
+        keep: active.filter(record => !deactivateSet.has(record.name)).map(record => record.name),
+    };
+}

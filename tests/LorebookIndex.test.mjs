@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildLorebookIndex, filterLorebookRecords, normalizeAvatarKey } from '../modules/LorebookIndex.js';
+import { buildLorebookIndex, createCharacterScopedGlobalSelectionPlan, filterLorebookRecords, normalizeAvatarKey } from '../modules/LorebookIndex.js';
 
 test('uses SillyTavern avatar stem for additional lorebook ownership', () => {
     assert.equal(normalizeAvatarKey('Alice.png'), 'Alice');
@@ -55,4 +55,21 @@ test('accepts SillyTavern character IDs supplied as numeric strings', () => {
 
     assert.equal(index.currentCharacter?.name, 'Alice');
     assert.equal(filterLorebookRecords(index, 'current')[0]?.name, 'Alice Book');
+});
+
+test('only deactivates globally selected lorebooks owned by other characters', () => {
+    const index = buildLorebookIndex({
+        worldNames: ['Alice Book', 'Bob Book', 'Public Book'],
+        characters: [
+            { name: 'Alice', avatar: 'Alice.png', data: { extensions: { world: 'Alice Book' } } },
+            { name: 'Bob', avatar: 'Bob.png', data: { extensions: { world: 'Bob Book' } } },
+        ],
+        activeGlobalNames: ['Alice Book', 'Bob Book', 'Public Book'],
+        currentCharacterId: 0,
+    });
+
+    assert.deepEqual(createCharacterScopedGlobalSelectionPlan(index), {
+        keep: ['Alice Book', 'Public Book'],
+        deactivate: ['Bob Book'],
+    });
 });
