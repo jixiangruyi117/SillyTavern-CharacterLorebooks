@@ -1,4 +1,4 @@
-import { buildLorebookIndex, filterLorebookRecords } from './modules/LorebookIndex.js?v=0.1.0';
+import { buildLorebookIndex, filterLorebookRecords } from './modules/LorebookIndex.js?v=0.1.1';
 
 const EXTENSION_FOLDER = 'third-party/SillyTavern-CharacterLorebooks';
 const SETTINGS_KEY = 'srlCharacterLorebooks';
@@ -72,50 +72,83 @@ function renderRecord(record) {
     </li>`;
 }
 
-function render({ focusQuery = false } = {}) {
-    const context = getContext();
-    const root = document.getElementById(ROOT_ID);
-    if (!context || !root) return;
-    const settings = getSettings(context);
-    const index = getIndex(context);
+function renderRecords(index, settings) {
     const records = filterLorebookRecords(index, settings.scope, settings.query);
-    const currentLabel = index.currentCharacter?.name ?? '群聊或未选择角色';
     const unavailableHint = settings.scope === 'current' && !index.currentCharacter
         ? '<p class="srl-character-lorebooks__empty">当前不是单角色聊天。请切到“全部”，或在群聊中使用酒馆原生世界书管理。</p>'
         : records.length
             ? `<ul class="srl-character-lorebooks__list">${records.map(renderRecord).join('')}</ul>`
             : '<p class="srl-character-lorebooks__empty">这个范围没有世界书。</p>';
+    return `<div class="srl-character-lorebooks__records" data-role="records">${unavailableHint}</div>`;
+}
+
+function isDrawerOpen(root) {
+    const content = root.querySelector(':scope > .srl-character-lorebooks__drawer > .inline-drawer-content');
+    return content instanceof HTMLElement ? getComputedStyle(content).display !== 'none' : null;
+}
+
+function restoreDrawerState(root, wasOpen) {
+    if (wasOpen === null) return;
+    const content = root.querySelector(':scope > .srl-character-lorebooks__drawer > .inline-drawer-content');
+    const icon = root.querySelector(':scope > .srl-character-lorebooks__drawer > .inline-drawer-header .inline-drawer-icon');
+    if (!(content instanceof HTMLElement) || !(icon instanceof HTMLElement)) return;
+    content.style.display = wasOpen ? 'block' : 'none';
+    icon.classList.toggle('up', wasOpen);
+    icon.classList.toggle('down', !wasOpen);
+    icon.classList.toggle('fa-circle-chevron-up', wasOpen);
+    icon.classList.toggle('fa-circle-chevron-down', !wasOpen);
+}
+
+function refreshRecords() {
+    const context = getContext();
+    const root = document.getElementById(ROOT_ID);
+    const target = root?.querySelector('[data-role="records"]');
+    if (!context || !(target instanceof HTMLElement)) return;
+    target.outerHTML = renderRecords(getIndex(context), getSettings(context));
+}
+
+function render({ focusQuery = false } = {}) {
+    const context = getContext();
+    const root = document.getElementById(ROOT_ID);
+    if (!context || !root) return;
+    const wasOpen = isDrawerOpen(root);
+    const settings = getSettings(context);
+    const index = getIndex(context);
+    const currentLabel = index.currentCharacter?.name ?? '群聊或未选择角色';
     const missing = index.missingBindings.length
         ? `<div class="srl-character-lorebooks__warning"><i class="fa-solid fa-triangle-exclamation"></i><span>发现 ${index.missingBindings.length} 个失效绑定：${index.missingBindings.map(item => escapeHtml(item.name)).join('、')}。插件没有修改它们。</span></div>`
         : '';
 
     root.innerHTML = `<div class="inline-drawer srl-character-lorebooks__drawer">
         <div class="inline-drawer-toggle inline-drawer-header">
-            <b><i class="fa-solid fa-book-atlas"></i> 角色世界书</b>
+            <b><i class="fa-solid fa-book-atlas"></i> 角色世界书 <span class="srl-character-lorebooks__count">${index.records.length}</span></b>
             <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
         </div>
         <div class="inline-drawer-content">
-            <p class="srl-character-lorebooks__intro">只整理酒馆现有绑定，不移动文件、不改全局启用状态，也不改变提示词装配。</p>
-            <div class="srl-character-lorebooks__summary">
-                <span>当前：<b>${escapeHtml(currentLabel)}</b></span>
-                <span>角色归属 ${index.ownedCount}</span><span>公共 ${index.publicCount}</span><span>共享 ${index.sharedCount}</span>
+            <section class="srl-character-lorebooks__overview">
+                <div><small>当前角色</small><strong>${escapeHtml(currentLabel)}</strong></div>
+                <p>只整理酒馆已有绑定，不移动文件、不改全局启用状态，也不改变提示词装配。</p>
+            </section>
+            <div class="srl-character-lorebooks__summary" aria-label="世界书统计">
+                <span><b>${index.ownedCount}</b> 角色归属</span><span><b>${index.publicCount}</b> 公共</span><span><b>${index.sharedCount}</b> 共享</span>
             </div>
             <div class="srl-character-lorebooks__controls">
-                <label>显示
+                <label class="srl-character-lorebooks__scope">显示
                     <select data-field="scope" class="text_pole">
                         <option value="current"${settings.scope === 'current' ? ' selected' : ''}>当前角色</option>
                         <option value="public"${settings.scope === 'public' ? ' selected' : ''}>公共世界书</option>
                         <option value="all"${settings.scope === 'all' ? ' selected' : ''}>全部世界书</option>
                     </select>
                 </label>
-                <label class="srl-character-lorebooks__search"><span class="fa-solid fa-magnifying-glass"></span><input data-field="query" class="text_pole" type="search" value="${escapeHtml(settings.query)}" placeholder="搜索世界书或角色"></label>
+                <label class="srl-character-lorebooks__search"><span class="fa-solid fa-magnifying-glass"></span><input data-field="query" class="text_pole" type="search" value="${escapeHtml(settings.query)}" placeholder="搜索世界书或角色" aria-label="搜索世界书或角色"></label>
                 <button type="button" class="menu_button" data-action="refresh"><i class="fa-solid fa-rotate"></i> 刷新</button>
                 <button type="button" class="menu_button" data-action="open-all"><i class="fa-solid fa-arrow-up-right-from-square"></i> 原生世界书</button>
             </div>
             ${missing}
-            ${unavailableHint}
+            ${renderRecords(index, settings)}
         </div>
     </div>`;
+    restoreDrawerState(root, wasOpen);
     if (focusQuery) {
         const input = root.querySelector('[data-field="query"]');
         input?.focus();
@@ -163,7 +196,7 @@ function bindDomEvents() {
         const settings = getSettings(context);
         settings.scope = event.target.value;
         saveSettings(context, settings);
-        render();
+        refreshRecords();
     });
     root.addEventListener('input', event => {
         const field = event.target?.dataset?.field;
@@ -173,7 +206,7 @@ function bindDomEvents() {
         const settings = getSettings(context);
         settings.query = event.target.value;
         saveSettings(context, settings);
-        render({ focusQuery: true });
+        refreshRecords();
     });
     root.addEventListener('click', event => {
         const target = event.target.closest?.('[data-action]');
