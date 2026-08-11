@@ -1,0 +1,11 @@
+{
+  "name": "sillytavern-character-lorebooks",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "check": "node --check index.js && node --check modules/LorebookIndex.js && node --test tests/*.test.mjs"
+  }
+}
