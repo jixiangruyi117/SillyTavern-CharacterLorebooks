@@ -4,7 +4,7 @@ import {
     createCharacterScopedGlobalSelectionPlan,
     filterLorebookRecords,
     projectLorebookIndex,
-} from './modules/LorebookIndex.js?v=0.2.4';
+} from './modules/LorebookIndex.js?v=0.2.8';
 import { world_info } from '../../../world-info.js';
 
 const EXTENSION_FOLDER = 'third-party/SillyTavern-CharacterLorebooks';
@@ -15,6 +15,7 @@ const SEARCH_DELAY_MS = 150;
 const INDEX_REBUILD_DELAY_MS = 160;
 const INDEX_CHUNK_SIZE = 250;
 const PAGE_SIZE = 40;
+const LEGACY_HYDRATION_CONCURRENCY = 3;
 
 let eventBindings = [];
 let cleanupConfirmation = null;
@@ -24,6 +25,7 @@ let rebuildTimer = 0;
 let rebuildVersion = 0;
 let searchTimer = 0;
 let listPage = 1;
+let legacyHydration = null;
 
 function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>'"]/gu, character => ({
@@ -40,6 +42,9 @@ function getSettings(context) {
     const settings = {
         scope: ['current', 'public', 'all'].includes(source.scope) ? source.scope : DEFAULT_SETTINGS.scope,
         query: String(source.query ?? ''),
+        legacyOwners: Array.isArray(source.legacyOwners)
+            ? source.legacyOwners.map(item => ({ avatar: String(item?.avatar ?? ''), worldName: String(item?.worldName ?? '') })).filter(item => item.avatar && item.worldName)
+            : [],
     };
     context.extensionSettings[SETTINGS_KEY] = settings;
     return settings;
@@ -59,11 +64,70 @@ function getCatalogBuildOptions(context, settings = getSettings(context)) {
         worldNames: context.getWorldInfoNames?.() ?? [],
         characters: context.characters ?? [],
         charLore: world_info?.charLore ?? [],
+        legacyOwners: settings.legacyOwners,
         activeGlobalNames: world_info?.globalSelect ?? [],
         chatLoreName: context.chatMetadata?.world_info ?? '',
         personaLoreName: context.powerUserSettings?.persona_description_lorebook ?? '',
         currentCharacterId: null,
     };
+}
+
+function mergeSavedOwners(context, owners) {
+    const settings = getSettings(context);
+    const byAvatar = new Map(settings.legacyOwners.map(item => [item.avatar, item]));
+    for (const item of owners) {
+        const avatar = String(item?.avatar ?? '');
+        const worldName = String(item?.worldName ?? '').trim();
+        if (avatar && worldName) byAvatar.set(avatar, { avatar, worldName });
+    }
+    const nextOwners = [...byAvatar.values()];
+    if (nextOwners.length === settings.legacyOwners.length
+        && nextOwners.every((item, index) => item.avatar === settings.legacyOwners[index]?.avatar && item.worldName === settings.legacyOwners[index]?.worldName)) {
+        return false;
+    }
+    settings.legacyOwners = nextOwners;
+    saveSettings(context, settings);
+    return true;
+}
+
+function rememberLoadedCharacter(context, character) {
+    const changed = mergeSavedOwners(context, [{
+        avatar: character?.avatar,
+        worldName: character?.data?.extensions?.world,
+    }]);
+    if (changed) scheduleCatalogRebuild({ immediate: true });
+}
+
+async function hydrateLegacyOwnership() {
+    const context = getContext();
+    if (!context?.getOneCharacter || legacyHydration) return;
+    const candidates = (context.characters ?? []).filter(character => character?.avatar);
+    if (!candidates.length) {
+        globalThis.toastr?.info?.('当前没有可恢复的角色绑定。', '角色世界书');
+        return;
+    }
+    legacyHydration = { total: candidates.length, done: 0 };
+    render();
+    try {
+        for (let start = 0; start < candidates.length; start += LEGACY_HYDRATION_CONCURRENCY) {
+            const batch = candidates.slice(start, start + LEGACY_HYDRATION_CONCURRENCY);
+            await Promise.all(batch.map(character => context.getOneCharacter(character.avatar)));
+            legacyHydration.done += batch.length;
+            if (legacyHydration.done % 12 === 0 || legacyHydration.done === legacyHydration.total) render();
+        }
+        const changed = mergeSavedOwners(context, (context.characters ?? []).map(character => ({
+            avatar: character?.avatar,
+            worldName: character?.data?.extensions?.world,
+        })));
+        globalThis.toastr?.success?.(`已读取 ${candidates.length} 个角色，${changed ? '恢复了已存在的角色世界书归属。' : '没有发现新的角色世界书归属。'}`, '角色世界书');
+        scheduleCatalogRebuild({ immediate: true });
+    } catch (error) {
+        globalThis.toastr?.error?.('恢复旧角色绑定时读取角色卡失败；酒馆数据未被修改。', '角色世界书');
+        console.error('[角色世界书] 恢复旧角色绑定失败', error);
+    } finally {
+        legacyHydration = null;
+        render();
+    }
 }
 
 function yieldToBrowser() {
@@ -272,7 +336,7 @@ function render({ focusQuery = false } = {}) {
         publicCount: 0,
         sharedCount: 0,
         currentCharacter: null,
-        diagnostics: { characterCount: 0, primaryBindingCount: 0, additionalBindingCount: 0, unownedCount: 0 },
+        diagnostics: { characterCount: 0, primaryBindingCount: 0, additionalBindingCount: 0, legacyBindingCount: 0, unownedCount: 0 },
     };
     const currentLabel = getCurrentCharacterLabel(context, displayIndex);
     const missing = displayIndex.missingBindings.length
@@ -288,7 +352,7 @@ function render({ focusQuery = false } = {}) {
             <section class="srl-character-lorebooks__overview">
                 <div><small>当前角色</small><strong>${escapeHtml(currentLabel)}</strong></div>
                 <p>只整理酒馆已有绑定，不移动文件、不改全局启用状态，也不改变提示词装配。</p>
-                <small>目录诊断：读取 ${displayIndex.diagnostics.characterCount} 个角色摘要，主绑定 ${displayIndex.diagnostics.primaryBindingCount}，附加 ${displayIndex.diagnostics.additionalBindingCount}，未归属 ${displayIndex.diagnostics.unownedCount}</small>
+                <small>目录诊断：读取 ${displayIndex.diagnostics.characterCount} 个角色摘要，主绑定 ${displayIndex.diagnostics.primaryBindingCount}，附加 ${displayIndex.diagnostics.additionalBindingCount}，已保存归属 ${displayIndex.diagnostics.legacyBindingCount}，未归属 ${displayIndex.diagnostics.unownedCount}</small>
             </section>
             <div class="srl-character-lorebooks__summary" aria-label="世界书统计">
                 <span><b>${displayIndex.ownedCount}</b> 角色归属</span><span><b>${displayIndex.publicCount}</b> 公共</span><span><b>${displayIndex.sharedCount}</b> 共享</span>
@@ -303,6 +367,7 @@ function render({ focusQuery = false } = {}) {
                 </label>
                 <label class="srl-character-lorebooks__search"><span class="fa-solid fa-magnifying-glass"></span><input data-field="query" class="text_pole" type="search" value="${escapeHtml(settings.query)}" placeholder="搜索世界书或角色" aria-label="搜索世界书或角色"></label>
                 <button type="button" class="menu_button" data-action="refresh"><i class="fa-solid fa-rotate"></i> 刷新</button>
+                <button type="button" class="menu_button" data-action="hydrate-legacy"${legacyHydration ? ' disabled' : ''} title="仅在你主动点击时分批读取完整角色卡，恢复已有世界书的归属；不会导入、创建或覆盖世界书"><i class="fa-solid fa-file-circle-check"></i> ${legacyHydration ? `恢复中 ${legacyHydration.done}/${legacyHydration.total}` : '恢复旧角色绑定'}</button>
                 <button type="button" class="menu_button" data-action="open-all"><i class="fa-solid fa-arrow-up-right-from-square"></i> 原生世界书</button>
                 <button type="button" class="menu_button srl-character-lorebooks__cleanup" data-action="request-cleanup"><i class="fa-solid fa-filter-circle-xmark"></i> 关闭其他角色书</button>
             </div>
@@ -378,6 +443,7 @@ function bindDomEvents() {
         const target = event.target.closest?.('[data-action]');
         if (!target) return;
         if (target.dataset.action === 'refresh') scheduleCatalogRebuild({ immediate: true });
+        if (target.dataset.action === 'hydrate-legacy') void hydrateLegacyOwnership();
         if (target.dataset.action === 'open-all') openNativeWorldPanel();
         if (target.dataset.action === 'open-native') openNativeWorld(target.dataset.worldName);
         if (target.dataset.action === 'page-prev') { listPage -= 1; refreshRecords(); }
@@ -421,6 +487,16 @@ function bindRuntimeEvents(context) {
     if (types.CHARACTER_PAGE_LOADED) {
         source.on(types.CHARACTER_PAGE_LOADED, rebuildAfterCharacterListLoaded);
         eventBindings.push({ source, type: types.CHARACTER_PAGE_LOADED, refresh: rebuildAfterCharacterListLoaded });
+    }
+    if (types.CHAT_LOADED) {
+        const rememberChatCharacter = event => {
+            const latestContext = getContext();
+            if (!latestContext) return;
+            const character = event?.detail?.character ?? latestContext.characters?.[latestContext.characterId];
+            rememberLoadedCharacter(latestContext, character);
+        };
+        source.on(types.CHAT_LOADED, rememberChatCharacter);
+        eventBindings.push({ source, type: types.CHAT_LOADED, refresh: rememberChatCharacter });
     }
     for (const type of [types.CHAT_CHANGED, types.GROUP_UPDATED]) {
         if (!type) continue;

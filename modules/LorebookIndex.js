@@ -24,11 +24,15 @@ export function snapshotLorebookOwnershipSources(characters) {
     }));
 }
 
-export function createLorebookOwnershipFingerprint({ worldNames = [], characters = [], charLore = [] } = {}) {
+export function createLorebookOwnershipFingerprint({ worldNames = [], characters = [], charLore = [], legacyOwners = [] } = {}) {
     return JSON.stringify({
         worldNames: [...normalizeNames(worldNames)].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN')),
         characters: snapshotLorebookOwnershipSources(characters)
             .map(character => [character.avatar, character.shallow, character.data.extensions.world])
+            .sort((a, b) => a[0].localeCompare(b[0], 'en')),
+        legacyOwners: (Array.isArray(legacyOwners) ? legacyOwners : [])
+            .map(item => [String(item?.avatar ?? ''), String(item?.worldName ?? '')])
+            .filter(([avatar, worldName]) => avatar && worldName)
             .sort((a, b) => a[0].localeCompare(b[0], 'en')),
         charLore: (Array.isArray(charLore) ? charLore : [])
             .map(item => [String(item?.name ?? ''), [...normalizeNames(item?.extraBooks)].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))])
@@ -65,10 +69,22 @@ function createAdditionalBooksByCharacter(charLore) {
     return result;
 }
 
+function createLegacyBooksByCharacter(legacyOwners) {
+    const result = new Map();
+    for (const item of Array.isArray(legacyOwners) ? legacyOwners : []) {
+        const key = normalizeAvatarKey(item?.avatar);
+        const bookName = String(item?.worldName ?? '').trim();
+        if (!key || !bookName) continue;
+        result.set(key, [...(result.get(key) ?? []), bookName]);
+    }
+    return result;
+}
+
 function createBuildState({
     worldNames = [],
     characters = [],
     charLore = [],
+    legacyOwners = [],
     activeGlobalNames = [],
     chatLoreName = '',
     personaLoreName = '',
@@ -85,9 +101,10 @@ function createBuildState({
         }])),
         characters: snapshotLorebookOwnershipSources(characters),
         extraBooksByCharacter: createAdditionalBooksByCharacter(charLore),
+        legacyBooksByCharacter: createLegacyBooksByCharacter(legacyOwners),
         missingBindings: [],
         knownNames: new Set(names),
-        sourceFingerprint: createLorebookOwnershipFingerprint({ worldNames, characters, charLore }),
+        sourceFingerprint: createLorebookOwnershipFingerprint({ worldNames, characters, charLore, legacyOwners }),
     };
 }
 
@@ -112,6 +129,11 @@ function addCharacterBindings(state, character) {
     for (const bookName of state.extraBooksByCharacter.get(avatarKey) ?? []) {
         addBinding(state, bookName, character, 'additional');
     }
+    if (!character?.data?.extensions?.world) {
+        for (const bookName of state.legacyBooksByCharacter.get(avatarKey) ?? []) {
+            addBinding(state, bookName, character, 'legacy');
+        }
+    }
 }
 
 function finalizeBuild(state) {
@@ -135,6 +157,7 @@ function finalizeBuild(state) {
             characterCount: state.characters.length,
             primaryBindingCount: records.filter(record => record.owners.some(owner => owner.type === 'primary')).length,
             additionalBindingCount: records.filter(record => record.owners.some(owner => owner.type === 'additional')).length,
+            legacyBindingCount: records.filter(record => record.owners.some(owner => owner.type === 'legacy')).length,
             unownedCount: records.filter(record => record.owners.length === 0).length,
         },
     };
