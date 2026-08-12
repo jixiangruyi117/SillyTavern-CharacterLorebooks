@@ -4,7 +4,7 @@ import {
     createCharacterScopedGlobalSelectionPlan,
     filterLorebookRecords,
     projectLorebookIndex,
-} from './modules/LorebookIndex.js?v=0.2.3';
+} from './modules/LorebookIndex.js?v=0.2.4';
 import { world_info } from '../../../world-info.js';
 
 const EXTENSION_FOLDER = 'third-party/SillyTavern-CharacterLorebooks';
@@ -91,7 +91,7 @@ async function hydrateLegacyOwnership() {
         }
         const settings = getSettings(context);
         settings.legacyOwners = (context.characters ?? [])
-            .map(character => ({ avatar: character?.avatar, worldName: character?.data?.character_book?.name }))
+            .map(character => ({ avatar: character?.avatar, worldName: character?.data?.extensions?.world }))
             .filter(item => item.avatar && item.worldName)
             .map(item => ({ avatar: String(item.avatar), worldName: String(item.worldName) }));
         saveSettings(context, settings);
@@ -328,7 +328,7 @@ function render({ focusQuery = false } = {}) {
             <section class="srl-character-lorebooks__overview">
                 <div><small>当前角色</small><strong>${escapeHtml(currentLabel)}</strong></div>
                 <p>只整理酒馆已有绑定，不移动文件、不改全局启用状态，也不改变提示词装配。</p>
-                <small>目录诊断：扫描 ${displayIndex.diagnostics.characterCount} 个角色，主绑定 ${displayIndex.diagnostics.primaryBindingCount}，嵌入书 ${displayIndex.diagnostics.embeddedBindingCount}，附加 ${displayIndex.diagnostics.additionalBindingCount}，旧卡补全 ${displayIndex.diagnostics.legacyBindingCount}，未归属 ${displayIndex.diagnostics.unownedCount}</small>
+                <small>目录诊断：扫描 ${displayIndex.diagnostics.characterCount} 个角色，主绑定 ${displayIndex.diagnostics.primaryBindingCount}，附加 ${displayIndex.diagnostics.additionalBindingCount}，旧卡补全 ${displayIndex.diagnostics.legacyBindingCount}，未归属 ${displayIndex.diagnostics.unownedCount}</small>
             </section>
             <div class="srl-character-lorebooks__summary" aria-label="世界书统计">
                 <span><b>${displayIndex.ownedCount}</b> 角色归属</span><span><b>${displayIndex.publicCount}</b> 公共</span><span><b>${displayIndex.sharedCount}</b> 共享</span>

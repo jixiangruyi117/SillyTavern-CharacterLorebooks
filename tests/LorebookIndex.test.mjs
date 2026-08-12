@@ -105,7 +105,7 @@ test('builds a reusable catalog in chunks and projects the current role afterwar
     assert.deepEqual(filterLorebookRecords(projected, 'current').map(record => record.name), ['Alice Book']);
 });
 
-test('uses the embedded character-book name when the primary link is not available yet', () => {
+test('does not mistake an embedded character-book copy for a live worldbook binding', () => {
     const index = buildLorebookIndex({
         worldNames: ['Imported Book'],
         characters: [{
@@ -115,8 +115,8 @@ test('uses the embedded character-book name when the primary link is not availab
         }],
     });
 
-    assert.equal(index.publicCount, 0);
-    assert.deepEqual(index.records[0].owners.map(owner => owner.name), ['Alice']);
+    assert.equal(index.publicCount, 1);
+    assert.deepEqual(index.records[0].owners, []);
 });
 
 test('uses a user-confirmed legacy ownership cache only for shallow unbound characters', () => {

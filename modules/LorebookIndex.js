@@ -20,9 +20,6 @@ export function snapshotLorebookOwnershipSources(characters) {
         shallow: character?.shallow === true,
         data: {
             extensions: { world: String(character?.data?.extensions?.world ?? '') },
-            character_book: {
-                name: String(character?.data?.character_book?.name ?? character?.character_book?.name ?? ''),
-            },
         },
     }));
 }
@@ -31,7 +28,7 @@ export function createLorebookOwnershipFingerprint({ worldNames = [], characters
     return JSON.stringify({
         worldNames: [...normalizeNames(worldNames)].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN')),
         characters: snapshotLorebookOwnershipSources(characters)
-            .map(character => [character.avatar, character.shallow, character.data.extensions.world, character.data.character_book.name])
+            .map(character => [character.avatar, character.shallow, character.data.extensions.world])
             .sort((a, b) => a[0].localeCompare(b[0], 'en')),
         legacyOwners: (Array.isArray(legacyOwners) ? legacyOwners : [])
             .map(item => [String(item?.avatar ?? ''), String(item?.worldName ?? '')])
@@ -130,7 +127,6 @@ function addBinding(state, name, character, type) {
 
 function addCharacterBindings(state, character) {
     addBinding(state, character?.data?.extensions?.world, character, 'primary');
-    addBinding(state, character?.data?.character_book?.name, character, 'embedded');
     const avatarKey = normalizeAvatarKey(character?.avatar);
     for (const bookName of state.extraBooksByCharacter.get(avatarKey) ?? []) {
         addBinding(state, bookName, character, 'additional');
@@ -162,7 +158,6 @@ function finalizeBuild(state) {
         diagnostics: {
             characterCount: state.characters.length,
             primaryBindingCount: records.filter(record => record.owners.some(owner => owner.type === 'primary')).length,
-            embeddedBindingCount: records.filter(record => record.owners.some(owner => owner.type === 'embedded')).length,
             additionalBindingCount: records.filter(record => record.owners.some(owner => owner.type === 'additional')).length,
             legacyBindingCount: records.filter(record => record.owners.some(owner => owner.type === 'legacy')).length,
             unownedCount: records.filter(record => record.owners.length === 0).length,
