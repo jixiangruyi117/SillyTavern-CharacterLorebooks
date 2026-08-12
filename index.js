@@ -75,9 +75,11 @@ function getCatalogBuildOptions(context, settings = getSettings(context)) {
 async function hydrateLegacyOwnership() {
     const context = getContext();
     if (!context?.getOneCharacter || legacyHydration) return;
-    const candidates = (context.characters ?? []).filter(character => character?.shallow === true && character?.avatar);
+    // Some Tavern paths expose partial character records without setting the
+    // shallow flag. Scan every avatar only after the user explicitly requests it.
+    const candidates = (context.characters ?? []).filter(character => character?.avatar);
     if (!candidates.length) {
-        globalThis.toastr?.info?.('当前角色列表已经是完整数据，无需补全旧角色归属。', '角色世界书');
+        globalThis.toastr?.info?.('当前没有可扫描的角色。', '角色世界书');
         return;
     }
     legacyHydration = { total: candidates.length, done: 0 };
@@ -95,7 +97,7 @@ async function hydrateLegacyOwnership() {
             .filter(item => item.avatar && item.worldName)
             .map(item => ({ avatar: String(item.avatar), worldName: String(item.worldName) }));
         saveSettings(context, settings);
-        globalThis.toastr?.success?.(`已补全 ${settings.legacyOwners.length} 条旧角色嵌入世界书归属。`, '角色世界书');
+        globalThis.toastr?.success?.(`已扫描 ${candidates.length} 个角色，补全 ${settings.legacyOwners.length} 条世界书归属。`, '角色世界书');
         scheduleCatalogRebuild({ immediate: true });
     } catch (error) {
         globalThis.toastr?.error?.('补全旧角色归属时读取角色卡失败；酒馆数据未被修改。', '角色世界书');
@@ -343,7 +345,7 @@ function render({ focusQuery = false } = {}) {
                 </label>
                 <label class="srl-character-lorebooks__search"><span class="fa-solid fa-magnifying-glass"></span><input data-field="query" class="text_pole" type="search" value="${escapeHtml(settings.query)}" placeholder="搜索世界书或角色" aria-label="搜索世界书或角色"></label>
                 <button type="button" class="menu_button" data-action="refresh"><i class="fa-solid fa-rotate"></i> 刷新</button>
-                <button type="button" class="menu_button" data-action="hydrate-legacy"${legacyHydration ? ' disabled' : ''}><i class="fa-solid fa-file-circle-check"></i> ${legacyHydration ? `补全中 ${legacyHydration.done}/${legacyHydration.total}` : '补全旧角色'}</button>
+                <button type="button" class="menu_button" data-action="hydrate-legacy"${legacyHydration ? ' disabled' : ''} title="分批读取所有角色的完整元数据，仅整理世界书归属，不修改角色卡"><i class="fa-solid fa-file-circle-check"></i> ${legacyHydration ? `扫描中 ${legacyHydration.done}/${legacyHydration.total}` : '扫描全部角色'}</button>
                 <button type="button" class="menu_button" data-action="open-all"><i class="fa-solid fa-arrow-up-right-from-square"></i> 原生世界书</button>
                 <button type="button" class="menu_button srl-character-lorebooks__cleanup" data-action="request-cleanup"><i class="fa-solid fa-filter-circle-xmark"></i> 关闭其他角色书</button>
             </div>

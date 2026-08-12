@@ -119,10 +119,10 @@ test('does not mistake an embedded character-book copy for a live worldbook bind
     assert.deepEqual(index.records[0].owners, []);
 });
 
-test('uses a user-confirmed legacy ownership cache only for shallow unbound characters', () => {
+test('uses a user-confirmed legacy ownership cache when the live list has no primary binding', () => {
     const index = buildLorebookIndex({
         worldNames: ['Old Book'],
-        characters: [{ name: 'Alice', avatar: 'Alice.png', shallow: true, data: { extensions: {} } }],
+        characters: [{ name: 'Alice', avatar: 'Alice.png', data: { extensions: {} } }],
         legacyOwners: [{ avatar: 'Alice.png', worldName: 'Old Book' }],
     });
 

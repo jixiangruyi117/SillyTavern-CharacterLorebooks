@@ -131,7 +131,7 @@ function addCharacterBindings(state, character) {
     for (const bookName of state.extraBooksByCharacter.get(avatarKey) ?? []) {
         addBinding(state, bookName, character, 'additional');
     }
-    if (character?.shallow && !character?.data?.extensions?.world) {
+    if (!character?.data?.extensions?.world) {
         for (const bookName of state.legacyBooksByCharacter.get(avatarKey) ?? []) {
             addBinding(state, bookName, character, 'legacy');
         }
