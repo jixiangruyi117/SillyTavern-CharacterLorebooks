@@ -15,7 +15,6 @@ const SEARCH_DELAY_MS = 150;
 const INDEX_REBUILD_DELAY_MS = 160;
 const INDEX_CHUNK_SIZE = 250;
 const PAGE_SIZE = 40;
-const LEGACY_HYDRATION_CONCURRENCY = 3;
 
 let eventBindings = [];
 let cleanupConfirmation = null;
@@ -25,7 +24,6 @@ let rebuildTimer = 0;
 let rebuildVersion = 0;
 let searchTimer = 0;
 let listPage = 1;
-let legacyHydration = null;
 
 function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>'"]/gu, character => ({
@@ -42,9 +40,6 @@ function getSettings(context) {
     const settings = {
         scope: ['current', 'public', 'all'].includes(source.scope) ? source.scope : DEFAULT_SETTINGS.scope,
         query: String(source.query ?? ''),
-        legacyOwners: Array.isArray(source.legacyOwners)
-            ? source.legacyOwners.map(item => ({ avatar: String(item?.avatar ?? ''), worldName: String(item?.worldName ?? '') })).filter(item => item.avatar && item.worldName)
-            : [],
     };
     context.extensionSettings[SETTINGS_KEY] = settings;
     return settings;
@@ -64,59 +59,11 @@ function getCatalogBuildOptions(context, settings = getSettings(context)) {
         worldNames: context.getWorldInfoNames?.() ?? [],
         characters: context.characters ?? [],
         charLore: world_info?.charLore ?? [],
-        legacyOwners: settings.legacyOwners,
         activeGlobalNames: world_info?.globalSelect ?? [],
         chatLoreName: context.chatMetadata?.world_info ?? '',
         personaLoreName: context.powerUserSettings?.persona_description_lorebook ?? '',
         currentCharacterId: null,
     };
-}
-
-async function refreshWorldInfoAndCatalog() {
-    const context = getContext();
-    try {
-        await context?.updateWorldInfoList?.();
-    } catch (error) {
-        console.error('[角色世界书] 刷新酒馆世界书列表失败', error);
-        globalThis.toastr?.warning?.('酒馆世界书列表刷新失败，已保留上一次列表。', '角色世界书');
-    }
-    scheduleCatalogRebuild({ immediate: true });
-}
-
-async function hydrateLegacyOwnership() {
-    const context = getContext();
-    if (!context?.getOneCharacter || legacyHydration) return;
-    // Some Tavern paths expose partial character records without setting the
-    // shallow flag. Scan every avatar only after the user explicitly requests it.
-    const candidates = (context.characters ?? []).filter(character => character?.avatar);
-    if (!candidates.length) {
-        globalThis.toastr?.info?.('当前没有可扫描的角色。', '角色世界书');
-        return;
-    }
-    legacyHydration = { total: candidates.length, done: 0 };
-    render();
-    try {
-        for (let start = 0; start < candidates.length; start += LEGACY_HYDRATION_CONCURRENCY) {
-            const batch = candidates.slice(start, start + LEGACY_HYDRATION_CONCURRENCY);
-            await Promise.all(batch.map(character => context.getOneCharacter(character.avatar)));
-            legacyHydration.done += batch.length;
-            if (legacyHydration.done % 12 === 0 || legacyHydration.done === legacyHydration.total) render();
-        }
-        const settings = getSettings(context);
-        settings.legacyOwners = (context.characters ?? [])
-            .map(character => ({ avatar: character?.avatar, worldName: character?.data?.extensions?.world }))
-            .filter(item => item.avatar && item.worldName)
-            .map(item => ({ avatar: String(item.avatar), worldName: String(item.worldName) }));
-        saveSettings(context, settings);
-        globalThis.toastr?.success?.(`已扫描 ${candidates.length} 个角色，补全 ${settings.legacyOwners.length} 条世界书归属。`, '角色世界书');
-        await refreshWorldInfoAndCatalog();
-    } catch (error) {
-        globalThis.toastr?.error?.('补全旧角色归属时读取角色卡失败；酒馆数据未被修改。', '角色世界书');
-        console.error('[角色世界书] 补全旧角色归属失败', error);
-    } finally {
-        legacyHydration = null;
-        render();
-    }
 }
 
 function yieldToBrowser() {
@@ -325,11 +272,11 @@ function render({ focusQuery = false } = {}) {
         publicCount: 0,
         sharedCount: 0,
         currentCharacter: null,
-        diagnostics: { characterCount: 0, primaryBindingCount: 0, embeddedBindingCount: 0, additionalBindingCount: 0, legacyBindingCount: 0, unownedCount: 0 },
+        diagnostics: { characterCount: 0, primaryBindingCount: 0, additionalBindingCount: 0, unownedCount: 0 },
     };
     const currentLabel = getCurrentCharacterLabel(context, displayIndex);
     const missing = displayIndex.missingBindings.length
-        ? `<div class="srl-character-lorebooks__warning"><i class="fa-solid fa-triangle-exclamation"></i><span>发现 ${displayIndex.missingBindings.length} 个失效绑定：${displayIndex.missingBindings.map(item => escapeHtml(item.name)).join('、')}。插件没有修改它们。</span></div>`
+        ? `<div class="srl-character-lorebooks__warning"><i class="fa-solid fa-circle-info"></i><span>发现 ${displayIndex.missingBindings.length} 个尚未存在的角色世界书：${displayIndex.missingBindings.map(item => escapeHtml(item.name)).join('、')}。若角色卡内嵌该世界书，进入聊天后按酒馆提示确认导入；若没有内嵌书，则这是原绑定已失效。插件不会自动创建或覆盖世界书。</span></div>`
         : '';
 
     root.innerHTML = `<div class="inline-drawer srl-character-lorebooks__drawer">
@@ -341,7 +288,7 @@ function render({ focusQuery = false } = {}) {
             <section class="srl-character-lorebooks__overview">
                 <div><small>当前角色</small><strong>${escapeHtml(currentLabel)}</strong></div>
                 <p>只整理酒馆已有绑定，不移动文件、不改全局启用状态，也不改变提示词装配。</p>
-                <small>目录诊断：扫描 ${displayIndex.diagnostics.characterCount} 个角色，主绑定 ${displayIndex.diagnostics.primaryBindingCount}，附加 ${displayIndex.diagnostics.additionalBindingCount}，旧卡补全 ${displayIndex.diagnostics.legacyBindingCount}，未归属 ${displayIndex.diagnostics.unownedCount}</small>
+                <small>目录诊断：读取 ${displayIndex.diagnostics.characterCount} 个角色摘要，主绑定 ${displayIndex.diagnostics.primaryBindingCount}，附加 ${displayIndex.diagnostics.additionalBindingCount}，未归属 ${displayIndex.diagnostics.unownedCount}</small>
             </section>
             <div class="srl-character-lorebooks__summary" aria-label="世界书统计">
                 <span><b>${displayIndex.ownedCount}</b> 角色归属</span><span><b>${displayIndex.publicCount}</b> 公共</span><span><b>${displayIndex.sharedCount}</b> 共享</span>
@@ -356,7 +303,6 @@ function render({ focusQuery = false } = {}) {
                 </label>
                 <label class="srl-character-lorebooks__search"><span class="fa-solid fa-magnifying-glass"></span><input data-field="query" class="text_pole" type="search" value="${escapeHtml(settings.query)}" placeholder="搜索世界书或角色" aria-label="搜索世界书或角色"></label>
                 <button type="button" class="menu_button" data-action="refresh"><i class="fa-solid fa-rotate"></i> 刷新</button>
-                <button type="button" class="menu_button" data-action="hydrate-legacy"${legacyHydration ? ' disabled' : ''} title="分批读取所有角色的完整元数据，仅整理世界书归属，不修改角色卡"><i class="fa-solid fa-file-circle-check"></i> ${legacyHydration ? `扫描中 ${legacyHydration.done}/${legacyHydration.total}` : '扫描全部角色'}</button>
                 <button type="button" class="menu_button" data-action="open-all"><i class="fa-solid fa-arrow-up-right-from-square"></i> 原生世界书</button>
                 <button type="button" class="menu_button srl-character-lorebooks__cleanup" data-action="request-cleanup"><i class="fa-solid fa-filter-circle-xmark"></i> 关闭其他角色书</button>
             </div>
@@ -431,8 +377,7 @@ function bindDomEvents() {
     root.addEventListener('click', event => {
         const target = event.target.closest?.('[data-action]');
         if (!target) return;
-        if (target.dataset.action === 'refresh') void refreshWorldInfoAndCatalog();
-        if (target.dataset.action === 'hydrate-legacy') hydrateLegacyOwnership();
+        if (target.dataset.action === 'refresh') scheduleCatalogRebuild({ immediate: true });
         if (target.dataset.action === 'open-all') openNativeWorldPanel();
         if (target.dataset.action === 'open-native') openNativeWorld(target.dataset.worldName);
         if (target.dataset.action === 'page-prev') { listPage -= 1; refreshRecords(); }

@@ -119,18 +119,6 @@ test('does not mistake an embedded character-book copy for a live worldbook bind
     assert.deepEqual(index.records[0].owners, []);
 });
 
-test('uses a user-confirmed legacy ownership cache when the live list has no primary binding', () => {
-    const index = buildLorebookIndex({
-        worldNames: ['Old Book'],
-        characters: [{ name: 'Alice', avatar: 'Alice.png', data: { extensions: {} } }],
-        legacyOwners: [{ avatar: 'Alice.png', worldName: 'Old Book' }],
-    });
-
-    assert.equal(index.publicCount, 0);
-    assert.equal(index.diagnostics.legacyBindingCount, 1);
-    assert.deepEqual(index.records[0].owners.map(owner => owner.name), ['Alice']);
-});
-
 test('snapshots 500 ownership sources before yielding so an in-place Tavern reload cannot mix catalogs', async () => {
     const characters = Array.from({ length: 500 }, (_, index) => ({
         name: `Role ${index}`,
