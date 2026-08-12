@@ -1,10 +1,10 @@
 import {
     buildLorebookIndexAsync,
-    createLorebookCatalogFingerprint,
+    createLorebookOwnershipFingerprint,
     createCharacterScopedGlobalSelectionPlan,
     filterLorebookRecords,
     projectLorebookIndex,
-} from './modules/LorebookIndex.js?v=0.2.2';
+} from './modules/LorebookIndex.js?v=0.2.3';
 import { world_info } from '../../../world-info.js';
 
 const EXTENSION_FOLDER = 'third-party/SillyTavern-CharacterLorebooks';
@@ -15,6 +15,7 @@ const SEARCH_DELAY_MS = 150;
 const INDEX_REBUILD_DELAY_MS = 160;
 const INDEX_CHUNK_SIZE = 250;
 const PAGE_SIZE = 40;
+const LEGACY_HYDRATION_CONCURRENCY = 3;
 
 let eventBindings = [];
 let cleanupConfirmation = null;
@@ -24,6 +25,7 @@ let rebuildTimer = 0;
 let rebuildVersion = 0;
 let searchTimer = 0;
 let listPage = 1;
+let legacyHydration = null;
 
 function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>'"]/gu, character => ({
@@ -40,6 +42,9 @@ function getSettings(context) {
     const settings = {
         scope: ['current', 'public', 'all'].includes(source.scope) ? source.scope : DEFAULT_SETTINGS.scope,
         query: String(source.query ?? ''),
+        legacyOwners: Array.isArray(source.legacyOwners)
+            ? source.legacyOwners.map(item => ({ avatar: String(item?.avatar ?? ''), worldName: String(item?.worldName ?? '') })).filter(item => item.avatar && item.worldName)
+            : [],
     };
     context.extensionSettings[SETTINGS_KEY] = settings;
     return settings;
@@ -54,17 +59,51 @@ function getIndex(context) {
     return catalog ? projectLorebookIndex(catalog, context.characterId) : null;
 }
 
-function getCatalogBuildOptions(context) {
-    const worldInfo = world_info ?? context.powerUserSettings?.world_info ?? {};
+function getCatalogBuildOptions(context, settings = getSettings(context)) {
     return {
         worldNames: context.getWorldInfoNames?.() ?? [],
         characters: context.characters ?? [],
-        charLore: worldInfo.charLore ?? [],
-        activeGlobalNames: worldInfo.globalSelect ?? [],
+        charLore: world_info?.charLore ?? [],
+        legacyOwners: settings.legacyOwners,
+        activeGlobalNames: world_info?.globalSelect ?? [],
         chatLoreName: context.chatMetadata?.world_info ?? '',
         personaLoreName: context.powerUserSettings?.persona_description_lorebook ?? '',
         currentCharacterId: null,
     };
+}
+
+async function hydrateLegacyOwnership() {
+    const context = getContext();
+    if (!context?.getOneCharacter || legacyHydration) return;
+    const candidates = (context.characters ?? []).filter(character => character?.shallow === true && character?.avatar);
+    if (!candidates.length) {
+        globalThis.toastr?.info?.('当前角色列表已经是完整数据，无需补全旧角色归属。', '角色世界书');
+        return;
+    }
+    legacyHydration = { total: candidates.length, done: 0 };
+    render();
+    try {
+        for (let start = 0; start < candidates.length; start += LEGACY_HYDRATION_CONCURRENCY) {
+            const batch = candidates.slice(start, start + LEGACY_HYDRATION_CONCURRENCY);
+            await Promise.all(batch.map(character => context.getOneCharacter(character.avatar)));
+            legacyHydration.done += batch.length;
+            if (legacyHydration.done % 12 === 0 || legacyHydration.done === legacyHydration.total) render();
+        }
+        const settings = getSettings(context);
+        settings.legacyOwners = (context.characters ?? [])
+            .map(character => ({ avatar: character?.avatar, worldName: character?.data?.character_book?.name }))
+            .filter(item => item.avatar && item.worldName)
+            .map(item => ({ avatar: String(item.avatar), worldName: String(item.worldName) }));
+        saveSettings(context, settings);
+        globalThis.toastr?.success?.(`已补全 ${settings.legacyOwners.length} 条旧角色嵌入世界书归属。`, '角色世界书');
+        scheduleCatalogRebuild({ immediate: true });
+    } catch (error) {
+        globalThis.toastr?.error?.('补全旧角色归属时读取角色卡失败；酒馆数据未被修改。', '角色世界书');
+        console.error('[角色世界书] 补全旧角色归属失败', error);
+    } finally {
+        legacyHydration = null;
+        render();
+    }
 }
 
 function yieldToBrowser() {
@@ -84,17 +123,12 @@ function scheduleCatalogRebuild({ immediate = false } = {}) {
     if (document.getElementById(ROOT_ID)) render();
     rebuildTimer = setTimeout(async () => {
         try {
-            // getContext() returns a point-in-time view. Read it here rather than
-            // reusing the context captured when this extension was activated.
             const context = getContext();
             if (!context?.getWorldInfoNames) {
                 if (version === rebuildVersion) catalogRebuilding = false;
                 return;
             }
-            const nextCatalog = await buildLorebookIndexAsync(getCatalogBuildOptions(context), {
-                chunkSize: INDEX_CHUNK_SIZE,
-                yieldToMain: yieldToBrowser,
-            });
+            const nextCatalog = await buildLorebookIndexAsync(getCatalogBuildOptions(context), { chunkSize: INDEX_CHUNK_SIZE, yieldToMain: yieldToBrowser });
             if (version !== rebuildVersion) return;
             catalog = nextCatalog;
             catalogRebuilding = false;
@@ -278,6 +312,7 @@ function render({ focusQuery = false } = {}) {
         publicCount: 0,
         sharedCount: 0,
         currentCharacter: null,
+        diagnostics: { characterCount: 0, primaryBindingCount: 0, embeddedBindingCount: 0, additionalBindingCount: 0, legacyBindingCount: 0, unownedCount: 0 },
     };
     const currentLabel = getCurrentCharacterLabel(context, displayIndex);
     const missing = displayIndex.missingBindings.length
@@ -293,6 +328,7 @@ function render({ focusQuery = false } = {}) {
             <section class="srl-character-lorebooks__overview">
                 <div><small>当前角色</small><strong>${escapeHtml(currentLabel)}</strong></div>
                 <p>只整理酒馆已有绑定，不移动文件、不改全局启用状态，也不改变提示词装配。</p>
+                <small>目录诊断：扫描 ${displayIndex.diagnostics.characterCount} 个角色，主绑定 ${displayIndex.diagnostics.primaryBindingCount}，嵌入书 ${displayIndex.diagnostics.embeddedBindingCount}，附加 ${displayIndex.diagnostics.additionalBindingCount}，旧卡补全 ${displayIndex.diagnostics.legacyBindingCount}，未归属 ${displayIndex.diagnostics.unownedCount}</small>
             </section>
             <div class="srl-character-lorebooks__summary" aria-label="世界书统计">
                 <span><b>${displayIndex.ownedCount}</b> 角色归属</span><span><b>${displayIndex.publicCount}</b> 公共</span><span><b>${displayIndex.sharedCount}</b> 共享</span>
@@ -307,6 +343,7 @@ function render({ focusQuery = false } = {}) {
                 </label>
                 <label class="srl-character-lorebooks__search"><span class="fa-solid fa-magnifying-glass"></span><input data-field="query" class="text_pole" type="search" value="${escapeHtml(settings.query)}" placeholder="搜索世界书或角色" aria-label="搜索世界书或角色"></label>
                 <button type="button" class="menu_button" data-action="refresh"><i class="fa-solid fa-rotate"></i> 刷新</button>
+                <button type="button" class="menu_button" data-action="hydrate-legacy"${legacyHydration ? ' disabled' : ''}><i class="fa-solid fa-file-circle-check"></i> ${legacyHydration ? `补全中 ${legacyHydration.done}/${legacyHydration.total}` : '补全旧角色'}</button>
                 <button type="button" class="menu_button" data-action="open-all"><i class="fa-solid fa-arrow-up-right-from-square"></i> 原生世界书</button>
                 <button type="button" class="menu_button srl-character-lorebooks__cleanup" data-action="request-cleanup"><i class="fa-solid fa-filter-circle-xmark"></i> 关闭其他角色书</button>
             </div>
@@ -382,6 +419,7 @@ function bindDomEvents() {
         const target = event.target.closest?.('[data-action]');
         if (!target) return;
         if (target.dataset.action === 'refresh') scheduleCatalogRebuild({ immediate: true });
+        if (target.dataset.action === 'hydrate-legacy') hydrateLegacyOwnership();
         if (target.dataset.action === 'open-all') openNativeWorldPanel();
         if (target.dataset.action === 'open-native') openNativeWorld(target.dataset.worldName);
         if (target.dataset.action === 'page-prev') { listPage -= 1; refreshRecords(); }
@@ -405,11 +443,11 @@ function bindRuntimeEvents(context) {
         cleanupConfirmation = null;
         scheduleCatalogRebuild();
     };
-    const rebuildWhenCharacterListIsReady = () => {
+    const rebuildAfterCharacterListLoaded = () => {
         const latestContext = getContext();
         if (!latestContext) return;
-        const latestFingerprint = createLorebookCatalogFingerprint(getCatalogBuildOptions(latestContext));
-        if (!catalog || catalog.sourceFingerprint !== latestFingerprint) rebuildCatalog();
+        const fingerprint = createLorebookOwnershipFingerprint(getCatalogBuildOptions(latestContext));
+        if (!catalog || catalog.sourceFingerprint !== fingerprint) rebuildCatalog();
     };
     for (const type of [
         types.CHARACTER_EDITED,
@@ -423,8 +461,8 @@ function bindRuntimeEvents(context) {
         eventBindings.push({ source, type, refresh: rebuildCatalog });
     }
     if (types.CHARACTER_PAGE_LOADED) {
-        source.on(types.CHARACTER_PAGE_LOADED, rebuildWhenCharacterListIsReady);
-        eventBindings.push({ source, type: types.CHARACTER_PAGE_LOADED, refresh: rebuildWhenCharacterListIsReady });
+        source.on(types.CHARACTER_PAGE_LOADED, rebuildAfterCharacterListLoaded);
+        eventBindings.push({ source, type: types.CHARACTER_PAGE_LOADED, refresh: rebuildAfterCharacterListLoaded });
     }
     for (const type of [types.CHAT_CHANGED, types.GROUP_UPDATED]) {
         if (!type) continue;

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
     buildLorebookIndex,
     buildLorebookIndexAsync,
-    createLorebookCatalogFingerprint,
+    createLorebookOwnershipFingerprint,
     createCharacterScopedGlobalSelectionPlan,
     filterLorebookRecords,
     normalizeAvatarKey,
@@ -105,41 +105,54 @@ test('builds a reusable catalog in chunks and projects the current role afterwar
     assert.deepEqual(filterLorebookRecords(projected, 'current').map(record => record.name), ['Alice Book']);
 });
 
-test('a rebuilt catalog replaces an earlier public classification after the character link is available', async () => {
-    const beforeLink = await buildLorebookIndexAsync({
+test('uses the embedded character-book name when the primary link is not available yet', () => {
+    const index = buildLorebookIndex({
         worldNames: ['Imported Book'],
-        characters: [{ name: 'Alice', avatar: 'Alice.png', data: { extensions: {} } }],
-    });
-    const afterLink = await buildLorebookIndexAsync({
-        worldNames: ['Imported Book'],
-        characters: [{ name: 'Alice', avatar: 'Alice.png', data: { extensions: { world: 'Imported Book' } } }],
+        characters: [{
+            name: 'Alice',
+            avatar: 'Alice.png',
+            data: { extensions: {}, character_book: { name: 'Imported Book' } },
+        }],
     });
 
-    assert.deepEqual(filterLorebookRecords(beforeLink, 'public').map(record => record.name), ['Imported Book']);
-    assert.deepEqual(filterLorebookRecords(afterLink, 'public'), []);
-    assert.deepEqual(filterLorebookRecords(afterLink, 'all')[0]?.owners.map(owner => owner.name), ['Alice']);
+    assert.equal(index.publicCount, 0);
+    assert.deepEqual(index.records[0].owners.map(owner => owner.name), ['Alice']);
 });
 
-test('detects same-size delayed bindings in a 500-character catalog', async () => {
-    const charactersBeforeLink = Array.from({ length: 500 }, (_, index) => ({
-        name: `Role ${index}`,
-        avatar: `role-${index}.png`,
-        data: { extensions: {} },
-    }));
-    const worldNames = charactersBeforeLink.map((_, index) => `Book ${index}`);
-    const charactersAfterLink = charactersBeforeLink.map((character, index) => ({
-        ...character,
-        data: { extensions: { world: `Book ${index}` } },
-    }));
-    const beforeFingerprint = createLorebookCatalogFingerprint({ worldNames, characters: charactersBeforeLink });
-    const afterFingerprint = createLorebookCatalogFingerprint({ worldNames, characters: charactersAfterLink });
-    const index = await buildLorebookIndexAsync({ worldNames, characters: charactersAfterLink }, {
-        chunkSize: 250,
-        yieldToMain: async () => {},
+test('uses a user-confirmed legacy ownership cache only for shallow unbound characters', () => {
+    const index = buildLorebookIndex({
+        worldNames: ['Old Book'],
+        characters: [{ name: 'Alice', avatar: 'Alice.png', shallow: true, data: { extensions: {} } }],
+        legacyOwners: [{ avatar: 'Alice.png', worldName: 'Old Book' }],
     });
 
-    assert.equal(charactersBeforeLink.length, charactersAfterLink.length);
-    assert.notEqual(beforeFingerprint, afterFingerprint);
     assert.equal(index.publicCount, 0);
+    assert.equal(index.diagnostics.legacyBindingCount, 1);
+    assert.deepEqual(index.records[0].owners.map(owner => owner.name), ['Alice']);
+});
+
+test('snapshots 500 ownership sources before yielding so an in-place Tavern reload cannot mix catalogs', async () => {
+    const characters = Array.from({ length: 500 }, (_, index) => ({
+        name: `Role ${index}`,
+        avatar: `role-${index}.png`,
+        data: { extensions: { world: `Book ${index}` } },
+    }));
+    const worldNames = characters.map((_, index) => `Book ${index}`);
+    const initialFingerprint = createLorebookOwnershipFingerprint({ worldNames, characters });
+    let yields = 0;
+    const index = await buildLorebookIndexAsync({ worldNames, characters }, {
+        chunkSize: 250,
+        yieldToMain: async () => {
+            yields += 1;
+            characters.splice(0, characters.length, ...characters.map(character => ({
+                ...character,
+                data: { extensions: {} },
+            })));
+        },
+    });
+
+    assert.equal(yields, 1);
+    assert.equal(index.sourceFingerprint, initialFingerprint);
     assert.equal(index.ownedCount, 500);
+    assert.equal(index.publicCount, 0);
 });
