@@ -72,6 +72,17 @@ function getCatalogBuildOptions(context, settings = getSettings(context)) {
     };
 }
 
+async function refreshWorldInfoAndCatalog() {
+    const context = getContext();
+    try {
+        await context?.updateWorldInfoList?.();
+    } catch (error) {
+        console.error('[角色世界书] 刷新酒馆世界书列表失败', error);
+        globalThis.toastr?.warning?.('酒馆世界书列表刷新失败，已保留上一次列表。', '角色世界书');
+    }
+    scheduleCatalogRebuild({ immediate: true });
+}
+
 async function hydrateLegacyOwnership() {
     const context = getContext();
     if (!context?.getOneCharacter || legacyHydration) return;
@@ -98,7 +109,7 @@ async function hydrateLegacyOwnership() {
             .map(item => ({ avatar: String(item.avatar), worldName: String(item.worldName) }));
         saveSettings(context, settings);
         globalThis.toastr?.success?.(`已扫描 ${candidates.length} 个角色，补全 ${settings.legacyOwners.length} 条世界书归属。`, '角色世界书');
-        scheduleCatalogRebuild({ immediate: true });
+        await refreshWorldInfoAndCatalog();
     } catch (error) {
         globalThis.toastr?.error?.('补全旧角色归属时读取角色卡失败；酒馆数据未被修改。', '角色世界书');
         console.error('[角色世界书] 补全旧角色归属失败', error);
@@ -420,7 +431,7 @@ function bindDomEvents() {
     root.addEventListener('click', event => {
         const target = event.target.closest?.('[data-action]');
         if (!target) return;
-        if (target.dataset.action === 'refresh') scheduleCatalogRebuild({ immediate: true });
+        if (target.dataset.action === 'refresh') void refreshWorldInfoAndCatalog();
         if (target.dataset.action === 'hydrate-legacy') hydrateLegacyOwnership();
         if (target.dataset.action === 'open-all') openNativeWorldPanel();
         if (target.dataset.action === 'open-native') openNativeWorld(target.dataset.worldName);
