@@ -1,0 +1,255 @@
+#srl-character-lorebooks .srl-character-lorebooks__drawer {
+    margin: 10px 0;
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__empty {
+    margin: 12px 0;
+    opacity: 0.8;
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__index-status,
+#srl-character-lorebooks .srl-character-lorebooks__list-meta {
+    margin: 10px 0 7px;
+    font-size: 0.86em;
+    opacity: 0.78;
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__summary,
+#srl-character-lorebooks .srl-character-lorebooks__controls,
+#srl-character-lorebooks .srl-character-lorebooks__tags {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__summary {
+    margin: 10px 0;
+    padding: 8px;
+    border: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.18));
+    border-radius: 6px;
+    background: var(--SmartThemeBlurTintColor, rgba(0, 0, 0, 0.08));
+    font-size: 0.86em;
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__controls {
+    display: grid;
+    grid-template-columns: minmax(142px, 0.9fr) minmax(190px, 1.5fr) max-content max-content;
+    align-items: center;
+    margin: 12px 0;
+    gap: 8px;
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__controls label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    white-space: nowrap;
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__controls select {
+    min-width: 0;
+    width: 100%;
+    min-height: 42px;
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__search {
+    flex: 1 1 170px;
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__search input {
+    min-width: 0;
+    width: 100%;
+    min-height: 42px;
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__controls > .menu_button {
+    min-width: max-content;
+    min-height: 42px;
+    margin: 0;
+    padding-inline: 10px;
+    white-space: nowrap;
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__cleanup {
+    grid-column: 1 / -1;
+    justify-self: start;
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__list {
+    display: grid;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__pager {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__pager > .menu_button {
+    min-height: 38px;
+    margin: 0;
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__overview {
+    display: grid;
+    gap: 3px;
+    padding: 10px;
+    border-left: 3px solid var(--SmartThemeEmColor, #5c9edc);
+    background: var(--SmartThemeBlurTintColor, rgba(0, 0, 0, 0.08));
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__overview small,
+#srl-character-lorebooks .srl-character-lorebooks__overview p {
+    margin: 0;
+    opacity: 0.78;
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__overview strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__count {
+    display: inline-grid;
+    min-width: 1.5em;
+    place-items: center;
+    border-radius: 999px;
+    background: var(--SmartThemeQuoteColor, rgba(120, 120, 120, 0.3));
+    font-size: 0.8em;
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 56px;
+    padding: 9px;
+    border: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.18));
+    border-radius: 6px;
+    background: var(--SmartThemeBlurTintColor, rgba(0, 0, 0, 0.08));
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__item-main {
+    display: grid;
+    min-width: 0;
+    flex: 1;
+    gap: 4px;
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__item-main strong,
+#srl-character-lorebooks .srl-character-lorebooks__item-main small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__tag {
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: var(--SmartThemeQuoteColor, rgba(120, 120, 120, 0.3));
+    font-size: 0.76em;
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__tag--current {
+    background: var(--SmartThemeEmColor, rgba(90, 160, 220, 0.45));
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__tag--shared,
+#srl-character-lorebooks .srl-character-lorebooks__tag--active {
+    background: var(--SmartThemeWarningColor, rgba(200, 145, 30, 0.45));
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__open {
+    flex: 0 0 auto;
+    min-width: 44px;
+    min-height: 44px;
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__warning {
+    display: flex;
+    gap: 7px;
+    margin: 8px 0;
+    padding: 8px;
+    border-left: 3px solid var(--SmartThemeWarningColor, #d99a28);
+    background: var(--SmartThemeBlurTintColor, rgba(0, 0, 0, 0.08));
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__cleanup-confirmation {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 8px;
+    margin: 10px 0;
+    padding: 10px;
+    border: 1px solid var(--SmartThemeWarningColor, #d99a28);
+    border-radius: 6px;
+    background: var(--SmartThemeBlurTintColor, rgba(0, 0, 0, 0.08));
+}
+
+#srl-character-lorebooks .srl-character-lorebooks__confirmation-actions {
+    display: flex;
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+@media (max-width: 760px) {
+    #srl-character-lorebooks .srl-character-lorebooks__controls {
+        grid-template-columns: 1fr 1fr;
+        align-items: stretch;
+    }
+
+    #srl-character-lorebooks .srl-character-lorebooks__scope,
+    #srl-character-lorebooks .srl-character-lorebooks__search {
+        grid-column: 1 / -1;
+    }
+
+    #srl-character-lorebooks .srl-character-lorebooks__cleanup {
+        grid-column: 1 / -1;
+        justify-self: stretch;
+    }
+
+    #srl-character-lorebooks .srl-character-lorebooks__scope select {
+        flex: 1;
+        min-height: 44px;
+    }
+
+    #srl-character-lorebooks .srl-character-lorebooks__controls > .menu_button {
+        min-height: 44px;
+        min-width: 0;
+        padding-inline: 6px;
+    }
+
+    #srl-character-lorebooks .srl-character-lorebooks__summary {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        text-align: center;
+    }
+
+    #srl-character-lorebooks .srl-character-lorebooks__summary span {
+        display: grid;
+        gap: 2px;
+    }
+
+    #srl-character-lorebooks .srl-character-lorebooks__summary b {
+        font-size: 1.1em;
+    }
+
+    #srl-character-lorebooks .srl-character-lorebooks__confirmation-actions > .menu_button {
+        flex: 1 1 120px;
+        min-height: 44px;
+    }
+
+    #srl-character-lorebooks .srl-character-lorebooks__pager > .menu_button {
+        min-height: 44px;
+    }
+}
